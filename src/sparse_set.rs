@@ -1,61 +1,36 @@
 //! A sparsely populated set, written `SparseSet<I, T>`, where `I` is the index type and `T` is the value type.
 //!
-//! `I` must implement `SparseSetIndex`, in particular, it must be able to be converted to a `usize`.
+//! `I` must implement `SparseSetIndex`, in particular, it must be able to be converted to a `usize` index.
 //!
 //! See [this article](https://research.swtch.com/sparse) on more details behind the data structure.
-//!
-//! Sparse sets ensure they never allocate more than `isize::MAX` bytes.
-//!
-//! Note that this data structure does not implement some common traits such as [`Eq`], [`PartialEq`], and
-//! [`std::hash::Hash`]. This is because it would not be efficient to do so as this data structure does not store the
-//! actual indices.
 
 #![allow(unsafe_code)]
 
 use std::{
-  alloc::{self, Allocator, Global, Layout, LayoutError},
-  cmp,
-  collections::{TryReserveError, TryReserveErrorKind},
+  alloc::{Allocator, Global},
+  collections::TryReserveError,
   fmt,
-  marker::PhantomData,
-  mem::{self, ManuallyDrop},
+  hash::{Hash, Hasher},
   num::NonZeroUsize,
-  ops::{Deref, Index, IndexMut},
-  ptr::{self, NonNull},
-  slice,
+  ops::{Deref, DerefMut, Index, IndexMut},
 };
 
 /// A sparsely populated set, written `SparseSet<I, T>`, where `I` is the index type and `T` is the value type.
-pub struct SparseSet<I, T, A: Allocator = Global> {
-  /// Memory allocator for allocating a single buffer for dense and sparse buffers.
-  alloc: A,
+///
+/// For operation complexity notes, *n* is the number of values in the sparse set and *m* is the value of the largest
+/// index in the sparse set. Note that *m* will always be at least as large as *n*.
+#[derive(Clone)]
+pub struct SparseSet<I, T, SA: Allocator = Global, DA: Allocator = Global> {
+  /// The dense buffer, i.e., the buffer containing the actual data values of type `T`.
+  dense: Vec<T, DA>,
 
-  /// The amount of elements the dense buffer, or similarly the sparse buffer, can hold.
-  capacity: usize,
+  /// The sparse buffer, i.e., the buffer where each index may correspond to an index into `dense`.
+  sparse: Vec<Option<NonZeroUsize>, SA>,
 
-  /// Dummy marker for ensuring the sparse set is specific to a given index type.
-  _marker: (PhantomData<I>, PhantomData<T>),
-
-  /// A pointer to the beginning of the dense buffer.
+  /// All the existing indices in `sparse`.
   ///
-  /// This can be dangling, but it must always be aligned.
-  dense_ptr: NonNull<u8>,
-
-  /// The length of the dense buffer.
-  dense_len: usize,
-
-  /// A pointer to the beginning of the sparse buffer.
-  ///
-  /// This will always point to the same allocated memory block as the dense pointer, just offset by `capacity` number
-  /// of elements.
-  ///
-  /// This can be dangling, but it must always be aligned.
-  sparse_ptr: NonNull<u8>,
-
-  /// The length of the sparse buffer.
-  ///
-  /// This may be different from the dense buffer as elements can be removed from the dense buffer.
-  sparse_len: usize,
+  /// The indices here will always be in order based on the `dense` buffer.
+  indices: Vec<I, DA>,
 }
 
 impl<I, T> SparseSet<I, T> {
@@ -73,7 +48,7 @@ impl<I, T> SparseSet<I, T> {
   /// ```
   #[must_use]
   pub fn new() -> Self {
-    SparseSet::new_in(Global)
+    SparseSet::new_in(Global, Global, Global)
   }
 
   /// Constructs a new, empty `SparseSet<I, T>` with the specified capacity.
@@ -82,7 +57,7 @@ impl<I, T> SparseSet<I, T> {
   /// sparse set will not allocate.
   ///
   /// It is important to note that although the returned sparse set has the *capacity* specified, the sparse set will
-  /// have a zero *len*.
+  /// have a zero *length*.
   ///
   /// # Panics
   ///
@@ -93,11 +68,12 @@ impl<I, T> SparseSet<I, T> {
   /// ```
   /// # use sparse_set::SparseSet;
   /// #
-  /// let mut set = SparseSet::with_capacity(10);
+  /// let mut set = SparseSet::with_capacity(11, 10);
   ///
   /// // The sparse set contains no items, even though it has capacity for more.
   /// assert_eq!(set.len(), 0);
-  /// assert_eq!(set.capacity(), 10);
+  /// assert_eq!(set.dense_capacity(), 10);
+  /// assert_eq!(set.sparse_capacity(), 11);
   ///
   /// // These are all done without reallocating...
   /// for i in 0..10 {
@@ -105,22 +81,29 @@ impl<I, T> SparseSet<I, T> {
   /// }
   ///
   /// assert_eq!(set.len(), 10);
-  /// assert_eq!(set.capacity(), 10);
+  /// assert_eq!(set.dense_capacity(), 10);
+  /// assert_eq!(set.sparse_capacity(), 11);
   ///
   /// // ...but this will make the sparse set reallocate.
+  /// set.insert(10, 10);
   /// set.insert(11, 11);
-  /// assert_eq!(set.len(), 11);
-  /// assert!(set.capacity() >= 11);
+  /// assert_eq!(set.dense_len(), 12);
+  /// assert!(set.dense_capacity() >= 12);
+  /// assert!(set.sparse_capacity() >= 12);
   /// ```
   #[cfg(not(no_global_oom_handling))]
   #[must_use]
-  pub fn with_capacity(capacity: usize) -> Self {
-    SparseSet::with_capacity_in(capacity, Global)
+  pub fn with_capacity(sparse_capacity: usize, dense_capacity: usize) -> Self {
+    assert!(
+      sparse_capacity >= dense_capacity,
+      "Sparse capacity must be at least as large as the dense capacity."
+    );
+    SparseSet::with_capacity_in(sparse_capacity, Global, dense_capacity, Global, Global)
   }
 }
 
-impl<I, T, A: Allocator> SparseSet<I, T, A> {
-  /// Constructs a new, empty `SparseSet<I, T, A>`.
+impl<I, T, DA: Allocator, SA: Allocator> SparseSet<I, T, SA, DA> {
+  /// Constructs a new, empty `SparseSet<I, T, DA, SA>`.
   ///
   /// The sparse set will not allocate until elements are pushed onto it.
   ///
@@ -134,28 +117,24 @@ impl<I, T, A: Allocator> SparseSet<I, T, A> {
   /// # use sparse_set::SparseSet;
   ///
   /// # #[allow(unused_mut)]
-  /// let mut set: SparseSet<usize, u32, _> = SparseSet::new_in(System);
+  /// let mut set: SparseSet<usize, u32, _, _> = SparseSet::new_in(System, System, System);
   /// ```
   #[must_use]
-  pub fn new_in(alloc: A) -> Self {
+  pub fn new_in(sparse_alloc: SA, dense_alloc: DA, indices_alloc: DA) -> Self {
     Self {
-      alloc,
-      capacity: 0,
-      _marker: (PhantomData, PhantomData),
-      dense_ptr: NonNull::<T>::dangling().cast(),
-      dense_len: 0,
-      sparse_ptr: NonNull::<Option<NonZeroUsize>>::dangling().cast(),
-      sparse_len: 0,
+      dense: Vec::new_in(dense_alloc),
+      sparse: Vec::new_in(sparse_alloc),
+      indices: Vec::new_in(indices_alloc),
     }
   }
 
-  /// Constructs a new, empty `SparseSet<I, T, A>` with the specified capacity with the provided allocator.
+  /// Constructs a new, empty `SparseSet<I, T, DA, SA>` with the specified capacity with the provided allocator.
   ///
   /// The sparse set will be able to hold exactly `capacity` elements without reallocating. If `capacity` is 0, the
   /// sparse set will not allocate.
   ///
   /// It is important to note that although the returned sparse set has the *capacity* specified, the sparse set will
-  /// have a zero *len*.
+  /// have a zero *length*.
   ///
   /// # Panics
   ///
@@ -170,76 +149,123 @@ impl<I, T, A: Allocator> SparseSet<I, T, A> {
   /// #
   /// # use sparse_set::SparseSet;
   ///
-  /// let mut set = SparseSet::with_capacity_in(10, System);
+  /// let mut set = SparseSet::with_capacity_in(10, System, 10, System, System);
   ///
   /// // The sparse set contains no items, even though it has capacity for more
-  /// assert_eq!(set.len(), 0);
-  /// assert_eq!(set.capacity(), 10);
+  /// assert_eq!(set.dense_len(), 0);
+  /// assert_eq!(set.sparse_len(), 0);
+  /// assert_eq!(set.dense_capacity(), 10);
+  /// assert_eq!(set.sparse_capacity(), 10);
   ///
   /// // These are all done without reallocating...
   /// for i in 0..10 {
   ///   set.insert(i, i);
   /// }
-  /// assert_eq!(set.len(), 10);
-  /// assert_eq!(set.capacity(), 10);
+  /// assert_eq!(set.dense_len(), 10);
+  /// assert_eq!(set.sparse_len(), 10);
+  /// assert_eq!(set.dense_capacity(), 10);
+  /// assert_eq!(set.sparse_capacity(), 10);
   ///
   /// // ...but this will make the sparse set reallocate
-  /// set.insert(11, 11);
-  /// assert_eq!(set.len(), 11);
-  /// assert!(set.capacity() >= 11);
+  /// set.insert(10, 10);
+  /// assert_eq!(set.dense_len(), 11);
+  /// assert!(set.dense_capacity() >= 11);
+  /// assert_eq!(set.sparse_len(), 11);
+  /// assert!(set.sparse_capacity() >= 11);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-    Self::allocate_in(capacity, alloc)
+  pub fn with_capacity_in(
+    sparse_capacity: usize,
+    sparse_alloc: SA,
+    dense_capacity: usize,
+    dense_alloc: DA,
+    indices_alloc: DA,
+  ) -> Self {
+    Self {
+      dense: Vec::with_capacity_in(dense_capacity, dense_alloc),
+      sparse: Vec::with_capacity_in(sparse_capacity, sparse_alloc),
+      indices: Vec::with_capacity_in(dense_capacity, indices_alloc),
+    }
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
-  /// Returns a reference to the underlying allocator.
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
+  /// Returns a reference to the underlying dense buffer allocator.
   #[must_use]
-  pub fn allocator(&self) -> &A {
-    &self.alloc
+  pub fn dense_allocator(&self) -> &DA {
+    self.dense.allocator()
   }
 
-  /// Extracts a slice containing the entire sparse set's buffer.
+  /// Returns a reference to the underlying sparse buffer allocator.
   #[must_use]
-  pub fn as_slice(&self) -> &[T] {
-    self
+  pub fn sparse_allocator(&self) -> &SA {
+    self.sparse.allocator()
   }
 
-  /// Returns a raw pointer to the sparse set's buffer, or a dangling raw pointer valid for zero sized reads if the
-  /// sparse set didn't allocate.
+  /// Extracts a slice containing the entire dense buffer.
+  #[must_use]
+  pub fn as_dense_slice(&self) -> &[T] {
+    &self.dense
+  }
+
+  /// Extracts a mutable slice of the entire dense buffer.
+  #[must_use]
+  pub fn as_dense_mut_slice(&mut self) -> &mut [T] {
+    &mut self.dense
+  }
+
+  /// Returns a raw pointer to the dense buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
+  /// didn't allocate.
   ///
   /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
   /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
   /// pointers to it invalid.
   ///
   /// The caller must also ensure that the memory the pointer (non-transitively) points to is never written to (except
-  /// inside an `UnsafeCell`) using this pointer or any pointer derived from it. If you need to mutate the contents of
-  /// the slice, use [`as_mut_ptr`].
+  /// inside an `UnsafeCell`) using this pointer or any pointer derived from it.
   #[must_use]
-  pub fn as_ptr(&self) -> *const T {
-    // We shadow the slice method of the same name to avoid going through `deref`, which creates an intermediate
-    // reference.
-    self.dense_ptr.as_ptr() as *const T
+  pub fn as_dense_ptr(&self) -> *const T {
+    self.dense.as_ptr()
   }
 
-  /// Returns the number of elements the sparse set can hold without reallocating.
+  /// Returns an unsafe mutable pointer to the sparse set's dense buffer.
   ///
-  /// Note that even for ZSTs, this will be based on the actual allocated memory. This is because memory still needs to
-  /// be allocated for the sparse buffer even if the value type itself is a ZST.
+  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
+  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
+  /// pointers to it invalid.
+  #[must_use]
+  pub fn as_dense_mut_ptr(&mut self) -> *mut T {
+    self.dense.as_mut_ptr()
+  }
+
+  /// Returns the number of elements the dense buffer can hold without reallocating.
   ///
   /// # Examples
   ///
   /// ```
   /// # use sparse_set::SparseSet;
   /// #
-  /// let set: SparseSet<usize, i32> = SparseSet::with_capacity(10);
-  /// assert_eq!(set.capacity(), 10);
+  /// let set: SparseSet<usize, i32> = SparseSet::with_capacity(15, 10);
+  /// assert_eq!(set.dense_capacity(), 10);
   /// ```
   #[must_use]
-  pub fn capacity(&self) -> usize {
-    self.capacity
+  pub fn dense_capacity(&self) -> usize {
+    self.dense.capacity()
+  }
+
+  /// Returns the number of elements the sparse buffer can hold without reallocating.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let set: SparseSet<usize, i32> = SparseSet::with_capacity(15, 10);
+  /// assert_eq!(set.sparse_capacity(), 15);
+  /// ```
+  #[must_use]
+  pub fn sparse_capacity(&self) -> usize {
+    self.sparse.capacity()
   }
 
   /// Clears the sparse set, removing all values.
@@ -264,16 +290,8 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// assert!(set.is_empty());
   /// ```
   pub fn clear(&mut self) {
-    let values: *mut [T] = self.as_mut_slice();
-
-    // SAFETY:
-    // - `values` comes directly from `as_mut_slice` and is therefore valid.
-    // - Setting `self.len` before calling `drop_in_place` means that, if an element's `Drop` impl panics, the sparse
-    //   set's `Drop` impl will do nothing (leaking the rest of the elements) instead of dropping some twice.
-    unsafe {
-      self.dense_len = 0;
-      ptr::drop_in_place(values);
-    }
+    self.dense.clear();
+    self.sparse.clear();
   }
 
   /// Returns `true` if the sparse set contains an element at the given index.
@@ -322,11 +340,11 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   #[must_use]
   pub fn get(&self, index: I) -> Option<&T> {
     self
-      .as_sparse_slice()
+      .sparse
       .get(index.into())
       .cloned()
       .flatten()
-      .map(|dense_index| unsafe { self.as_slice().get_unchecked(dense_index.get() - 1) })
+      .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
   }
 
   /// Returns a mutable reference to an element pointed to by the index, if it exists.
@@ -353,18 +371,43 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   #[must_use]
   pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
     self
-      .as_sparse_slice()
+      .sparse
       .get(index.into())
       .cloned()
       .flatten()
-      .map(|dense_index| unsafe { self.as_mut_slice().get_unchecked_mut(dense_index.get() - 1) })
+      .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
+  }
+
+  /// Returns an iterator over the sparse set's indices.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// let mut iterator = set.indices();
+  ///
+  /// assert_eq!(iterator.next(), Some(&0));
+  /// assert_eq!(iterator.next(), Some(&1));
+  /// assert_eq!(iterator.next(), Some(&2));
+  /// assert_eq!(iterator.next(), None);
+  /// ```
+  pub fn indices(&self) -> impl Iterator<Item = &I> {
+    self.indices.iter()
   }
 
   /// Inserts an element at position `index` within the sparse set.
   ///
   /// If a value already existed at `index`, it will be overwritten.
   ///
-  /// If `index` is greater than `capacity`, then an allocation will take place.
+  /// If `index` is greater than `sparse_capacity` or , then an allocation will take place.
   ///
   /// This operation is amortized *O*(*1*).
   ///
@@ -386,7 +429,24 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert(&mut self, index: I, value: T) {
-    self.insert_raw(index.into(), value);
+    let index_raw = index.clone().into();
+
+    match self.sparse.get(index_raw) {
+      Some(Some(dense_index)) => {
+        let dense_index = dense_index.get() - 1;
+        *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
+      }
+      opt => {
+        if opt.is_none() {
+          self.sparse.resize_with(index_raw + 1, || None);
+        }
+
+        *unsafe { self.sparse.get_unchecked_mut(index_raw) } =
+          Some(unsafe { NonZeroUsize::new_unchecked(self.dense_len() + 1) });
+        self.dense.push(value);
+        self.indices.push(index);
+      }
+    }
   }
 
   /// Returns `true` if the sparse set contains no elements.
@@ -404,10 +464,10 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// ```
   #[must_use]
   pub fn is_empty(&self) -> bool {
-    self.len() == 0
+    self.dense_len() == 0
   }
 
-  /// Returns the number of elements in the sparse set, also referred to as its 'len'.
+  /// Returns the number of elements in the dense set, also referred to as its 'dense_len'.
   ///
   /// # Examples
   ///
@@ -419,11 +479,30 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// set.insert(1, 2);
   /// set.insert(2, 3);
   ///
-  /// assert_eq!(set.len(), 3);
+  /// assert_eq!(set.dense_len(), 3);
   /// ```
   #[must_use]
-  pub fn len(&self) -> usize {
-    self.dense_len
+  pub fn dense_len(&self) -> usize {
+    self.dense.len()
+  }
+
+  /// Returns the number of elements in the sparse set, also referred to as its 'sparse_len'.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(200, 3);
+  ///
+  /// assert_eq!(set.sparse_len(), 201);
+  /// ```
+  #[must_use]
+  pub fn sparse_len(&self) -> usize {
+    self.sparse.len()
   }
 
   /// Removes and returns the element at position `index` within the sparse set, if it exists.
@@ -446,23 +525,22 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   pub fn remove(&mut self, index: I) -> Option<T> {
     let index = index.into();
 
-    match self.as_sparse_mut_slice().get_mut(index) {
+    match self.sparse.get_mut(index) {
       Some(opt) => {
         if let Some(dense_index) = opt.take() {
-          let mut_ptr = self.as_mut_ptr();
           let dense_index = dense_index.get() - 1;
+          let value = Some(self.dense.swap_remove(dense_index));
+          let _ = self.indices.swap_remove(dense_index);
 
-          unsafe {
-            let value = ptr::read(mut_ptr.add(dense_index));
-            ptr::copy(mut_ptr.add(self.dense_len - 1), mut_ptr.add(dense_index), 1);
-
-            if index == self.sparse_len - 1 {
-              self.sparse_len -= 1;
-            }
-
-            self.dense_len -= 1;
-            return Some(value);
+          if dense_index != self.dense.len() {
+            let swapped_index: usize = unsafe { self.indices.get_unchecked(dense_index) }
+              .clone()
+              .into();
+            *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
+              Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
           }
+
+          return value;
         }
 
         None
@@ -471,10 +549,11 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
     }
   }
 
-  /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`.
+  /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s dense
+  /// buffer.
   ///
-  /// The collection may reserve more space to avoid frequent reallocations. After calling `reserve`, capacity will be
-  /// greater than or equal to `self.len() + additional`. Does nothing if capacity is already sufficient.
+  /// The collection may reserve more space to avoid frequent reallocations. After calling `reserve`, the dense capacity
+  /// will be greater than or equal to `self.dense_len() + additional`. Does nothing if capacity is already sufficient.
   ///
   /// # Panics
   ///
@@ -487,36 +566,48 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// #
   /// let mut set = SparseSet::new();
   /// set.insert(0, 1);
-  /// set.reserve(10);
-  /// assert!(set.capacity() >= 11);
+  /// set.reserve_dense(10);
+  /// assert!(set.dense_capacity() >= 11);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn reserve(&mut self, additional: usize) {
-    // Callers expect this function to be very cheap when there is already sufficient capacity. Therefore, we move all
-    // the resizing and error-handling logic from grow_amortized and handle_reserve behind a call, while making sure
-    // that this function is likely to be inlined as just a comparison and a call if the comparison fails.
-    #[cold]
-    fn do_reserve_and_handle<I, T, A: Allocator>(
-      slf: &mut SparseSet<I, T, A>,
-      len: usize,
-      additional: usize,
-    ) {
-      handle_reserve(slf.grow_amortized(len, additional));
-    }
+  pub fn reserve_dense(&mut self, additional: usize) {
+    self.dense.reserve(additional);
+  }
 
-    if self.needs_to_grow(self.dense_len, additional) {
-      do_reserve_and_handle(self, self.dense_len, additional);
-    }
+  /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s sparse
+  /// buffer.
+  ///
+  /// The collection may reserve more space to avoid frequent reallocations. After calling `reserve`, the sparse
+  /// capacity will be greater than or equal to `self.sparse_len() + additional`. Does nothing if capacity is already
+  /// sufficient.
+  ///
+  /// # Panics
+  ///
+  /// Panics if the new capacity exceeds `isize::MAX` bytes.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.reserve_sparse(10);
+  /// assert!(set.sparse_capacity() >= 11);
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn reserve_sparse(&mut self, additional: usize) {
+    self.sparse.reserve(additional);
   }
 
   /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the given
-  /// `SparseSet<I, T>`.
+  /// `SparseSet<I, T>`'s dense buffer.
   ///
-  /// After calling `reserve_exact`, capacity will be greater than or equal to `self.len() + additional`. Does nothing
-  /// if the capacity is already sufficient.
+  /// After calling `reserve_exact`, the dense capacity will be greater than or equal to
+  /// `self.dense_len() + additional`. Does nothing if the capacity is already sufficient.
   ///
   /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
-  /// upon to be precisely minimal. Prefer [`reserve`] if future insertions are expected.
+  /// upon to be precisely minimal. Prefer [`reserve_dense`] if future insertions are expected.
   ///
   /// [`reserve`]: SparseSet::reserve
   ///
@@ -531,42 +622,254 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// #
   /// let mut set = SparseSet::new();
   /// set.insert(0, 1);
-  /// set.reserve(10);
-  /// set.reserve_exact(10);
-  /// assert!(set.capacity() >= 11);
+  /// set.reserve_exact_dense(10);
+  /// assert!(set.dense_capacity() >= 11);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn reserve_exact(&mut self, additional: usize) {
-    handle_reserve(self.try_reserve_exact(additional));
+  pub fn reserve_exact_dense(&mut self, additional: usize) {
+    self.dense.reserve_exact(additional);
   }
 
-  /// Shrinks the capacity of the sparse set as much as possible.
+  /// Tries to reserve capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s
+  /// dense buffer.
   ///
-  /// It will drop down as close as possible to the length but the allocator may still inform the sparse vector that
-  /// there is space for a few more elements.
+  /// The collection may reserve more space to avoid frequent reallocations. After calling `try_reserve_dense`, capacity
+  /// will be greater than or equal to `self.dense_len() + additional`. Does nothing if capacity is already sufficient.
+  ///
+  /// # Errors
+  ///
+  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use std::collections::TryReserveError;
+  ///
+  /// # use sparse_set::SparseSet;
+  ///
+  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
+  ///   let mut output = SparseSet::new();
+  ///
+  ///   // Pre-reserve the memory, exiting if we can't.
+  ///   output.try_reserve_dense(data.len())?;
+  ///
+  ///   // Now we know this can't OOM in the middle of our complex work.
+  ///   for (index, value) in data.iter().cloned().enumerate() {
+  ///     output.insert(index, value);
+  ///   }
+  ///
+  ///   Ok(output)
+  /// }
+  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
+  /// ```
+  pub fn try_reserve_dense(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    self.dense.try_reserve(additional)
+  }
+
+  /// Tries to reserve capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s
+  /// sparse buffer.
+  ///
+  /// The collection may reserve more space to avoid frequent reallocations. After calling `try_reserve_sparse`,
+  /// capacity will be greater than or equal to `self.sparse_len() + additional`. Does nothing if capacity is already
+  /// sufficient.
+  ///
+  /// # Errors
+  ///
+  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use std::collections::TryReserveError;
+  ///
+  /// # use sparse_set::SparseSet;
+  ///
+  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
+  ///   let mut output = SparseSet::new();
+  ///
+  ///   // Pre-reserve the memory, exiting if we can't.
+  ///   output.try_reserve_sparse(data.len())?;
+  ///
+  ///   // Now we know this can't OOM in the middle of our complex work.
+  ///   for (index, value) in data.iter().cloned().enumerate() {
+  ///     output.insert(index, value);
+  ///   }
+  ///
+  ///   Ok(output)
+  /// }
+  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
+  /// ```
+  pub fn try_reserve_sparse(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    self.sparse.try_reserve(additional)
+  }
+
+  /// Tries to reserve the minimum capacity for exactly `additional` elements to be inserted in the given
+  /// `SparseSet<T>`'s dense buffer.
+  ///
+  /// After calling `try_reserve_exact_dense`, capacity will be greater than or equal to `self.dense_len() + additional`
+  /// if it returns `Ok(())`. Does nothing if the capacity is already sufficient.
+  ///
+  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
+  /// upon to be precisely minimal. Prefer [`try_reserve_dense`] if future insertions are expected.
+  ///
+  /// [`try_reserve_dense`]: SparseSet::try_reserve_dense
+  ///
+  /// # Errors
+  ///
+  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use std::collections::TryReserveError;
+  ///
+  /// # use sparse_set::SparseSet;
+  ///
+  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
+  ///   let mut output = SparseSet::new();
+  ///
+  ///   // Pre-reserve the memory, exiting if we can't.
+  ///   output.try_reserve_exact_dense(data.len())?;
+  ///
+  ///   // Now we know this can't OOM in the middle of our complex work.
+  ///   for (index, value) in data.iter().cloned().enumerate() {
+  ///     output.insert(index, value);
+  ///   }
+  ///
+  ///   Ok(output)
+  /// }
+  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
+  /// ```
+  pub fn try_reserve_exact_dense(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    self.dense.try_reserve_exact(additional)
+  }
+
+  /// Tries to reserve the minimum capacity for exactly `additional` elements to be inserted in the given
+  /// `SparseSet<T>`'s sparse buffer.
+  ///
+  /// After calling `try_reserve_exact_sparse`, capacity will be greater than or equal to
+  /// `self.sparse_len() + additional` if it returns `Ok(())`. Does nothing if the capacity is already sufficient.
+  ///
+  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
+  /// upon to be precisely minimal. Prefer [`try_reserve_sparse`] if future insertions are expected.
+  ///
+  /// [`try_reserve_sparse`]: SparseSet::try_reserve_sparse
+  ///
+  /// # Errors
+  ///
+  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use std::collections::TryReserveError;
+  ///
+  /// # use sparse_set::SparseSet;
+  ///
+  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
+  ///   let mut output = SparseSet::new();
+  ///
+  ///   // Pre-reserve the memory, exiting if we can't.
+  ///   output.try_reserve_exact_sparse(data.len())?;
+  ///
+  ///   // Now we know this can't OOM in the middle of our complex work.
+  ///   for (index, value) in data.iter().cloned().enumerate() {
+  ///     output.insert(index, value);
+  ///   }
+  ///
+  ///   Ok(output)
+  /// }
+  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
+  /// ```
+  pub fn try_reserve_exact_sparse(&mut self, additional: usize) -> Result<(), TryReserveError> {
+    self.sparse.try_reserve_exact(additional)
+  }
+
+  /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the given
+  /// `SparseSet<I, T>`'s sparse buffer.
+  ///
+  /// After calling `reserve_exact`, the sparse capacity will be greater than or equal to
+  /// `self.sparse_len() + additional`. Does nothing if the capacity is already sufficient.
+  ///
+  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
+  /// upon to be precisely minimal. Prefer [`reserve_sparse`] if future insertions are expected.
+  ///
+  /// [`reserve`]: SparseSet::reserve
+  ///
+  /// # Panics
+  ///
+  /// Panics if the new capacity exceeds `isize::MAX` bytes.
   ///
   /// # Examples
   ///
   /// ```
   /// # use sparse_set::SparseSet;
   /// #
-  /// let mut set = SparseSet::with_capacity(10);
+  /// let mut set = SparseSet::new();
   /// set.insert(0, 1);
-  /// set.insert(1, 2);
-  /// assert_eq!(set.capacity(), 10);
-  ///
-  /// set.shrink_to_fit();
-  /// assert!(set.capacity() >= 2);
+  /// set.reserve_exact_sparse(10);
+  /// assert!(set.sparse_capacity() >= 11);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn shrink_to_fit(&mut self) {
-    // The capacity is never less than the sparse buffer length, and there's nothing to do when they are equal.
-    if self.capacity() > self.sparse_len {
-      handle_reserve(self.shrink(self.sparse_len));
-    }
+  pub fn reserve_exact_sparse(&mut self, additional: usize) {
+    self.sparse.reserve_exact(additional);
   }
 
-  /// Shrinks the capacity of the sparse set with a lower bound.
+  /// Shrinks the dense capacity of the sparse set as much as possible.
+  ///
+  /// It will drop down as close as possible to the length but the allocator may still inform the sparse vector that
+  /// there is space for a few more elements.
+  ///
+  /// This operation is *O*(*n*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::with_capacity(10, 10);
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// assert_eq!(set.dense_capacity(), 10);
+  ///
+  /// set.shrink_to_fit_dense();
+  /// assert!(set.dense_capacity() >= 2);
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn shrink_to_fit_dense(&mut self) {
+    self.dense.shrink_to_fit()
+  }
+
+  /// Shrinks the sparse capacity of the sparse set as much as possible.
+  ///
+  /// Unlike [`shrink_to_fit_dense`], this can also reduce `sparse_len` as any empty indices after the maximum index are
+  /// removed.
+  ///
+  /// It will drop down as close as possible to the length but the allocator may still inform the sparse vector that
+  /// there is space for a few more elements.
+  ///
+  /// This operation is *O*(*m*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::with_capacity(10, 10);
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// assert_eq!(set.sparse_capacity(), 10);
+  ///
+  /// set.shrink_to_fit_dense();
+  /// assert!(set.sparse_capacity() >= 2);
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn shrink_to_fit_sparse(&mut self) {
+    self.sparse.truncate(self.max_index());
+    self.sparse.shrink_to_fit();
+  }
+
+  /// Shrinks the dense capacity of the sparse set with a lower bound.
   ///
   /// The capacity will remain at least as large as both the length and the supplied value.
   ///
@@ -577,107 +880,71 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// ```
   /// # use sparse_set::SparseSet;
   /// #
-  /// let mut set = SparseSet::with_capacity(10);
+  /// let mut set = SparseSet::with_capacity(10, 10);
   /// set.insert(0, 1);
   /// set.insert(1, 2);
-  /// assert_eq!(set.capacity(), 10);
-  /// set.shrink_to(4);
-  /// assert!(set.capacity() >= 4);
-  /// set.shrink_to(0);
-  /// assert!(set.capacity() >= 2);
+  /// assert_eq!(set.dense_capacity(), 10);
+  /// set.shrink_to_dense(4);
+  /// assert!(set.dense_capacity() >= 4);
+  /// set.shrink_to_dense(0);
+  /// assert!(set.dense_capacity() >= 2);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn shrink_to(&mut self, min_capacity: usize) {
-    if self.capacity() > min_capacity {
-      handle_reserve(self.shrink(cmp::max(self.sparse_len, min_capacity)));
-    }
+  pub fn shrink_to_dense(&mut self, min_capacity: usize) {
+    self.dense.shrink_to(min_capacity);
   }
 
-  /// Tries to reserve capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`.
+  /// Shrinks the sparse capacity of the sparse set with a lower bound.
   ///
-  /// The collection may reserve more space to avoid frequent reallocations. After calling `try_reserve`, capacity will
-  /// be greater than or equal to `self.len() + additional`. Does nothing if capacity is already sufficient.
+  /// Unlike [`shrink_to_dense`], this can also reduce `sparse_len` as any empty indices after the maximum index are
+  /// removed.
   ///
-  /// # Errors
+  /// The capacity will remain at least as large as both the length and the supplied value.
   ///
-  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+  /// If the current capacity is less than the lower limit, this is a no-op.
   ///
   /// # Examples
   ///
   /// ```
-  /// use std::collections::TryReserveError;
-  ///
   /// # use sparse_set::SparseSet;
-  ///
-  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
-  ///   let mut output = SparseSet::new();
-  ///
-  ///   // Pre-reserve the memory, exiting if we can't.
-  ///   output.try_reserve(data.len())?;
-  ///
-  ///   // Now we know this can't OOM in the middle of our complex work.
-  ///   for (index, value) in data.iter().cloned().enumerate() {
-  ///     output.insert(index, value);
-  ///   }  
-  ///
-  ///   Ok(output)
-  /// }
-  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
+  /// #
+  /// let mut set = SparseSet::with_capacity(10, 10);
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// assert_eq!(set.sparse_capacity(), 10);
+  /// set.shrink_to_sparse(4);
+  /// assert!(set.sparse_capacity() >= 4);
+  /// set.shrink_to_sparse(0);
+  /// assert!(set.sparse_capacity() >= 2);
   /// ```
-  pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-    if self.needs_to_grow(self.dense_len, additional) {
-      self.grow_amortized(self.dense_len, additional)
-    } else {
-      Ok(())
+  #[cfg(not(no_global_oom_handling))]
+  pub fn shrink_to_sparse(&mut self, min_capacity: usize) {
+    let sparse_len = self.max_index();
+
+    if min_capacity < sparse_len {
+      self.sparse.truncate(sparse_len);
     }
+
+    self.sparse.shrink_to(min_capacity);
   }
 
-  /// Tries to reserve the minimum capacity for exactly `additional` elements to be inserted in the given
-  /// `SparseSet<T>`.
+  /// Returns the largest index in the sparse set, or None if it is empty.
   ///
-  /// After calling `try_reserve_exact`, capacity will be greater than or equal to `self.len() + additional` if it
-  /// returns `Ok(())`. Does nothing if the capacity is already sufficient.
-  ///
-  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
-  /// upon to be precisely minimal. Prefer [`try_reserve`] if future insertions are expected.
-  ///
-  /// [`try_reserve`]: SparseSet::try_reserve
-  ///
-  /// # Errors
-  ///
-  /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use std::collections::TryReserveError;
-  ///
-  /// # use sparse_set::SparseSet;
-  ///
-  /// fn process_data(data: &[u32]) -> Result<SparseSet<usize, u32>, TryReserveError> {
-  ///   let mut output = SparseSet::new();
-  ///
-  ///   // Pre-reserve the memory, exiting if we can't.
-  ///   output.try_reserve_exact(data.len())?;
-  ///
-  ///   // Now we know this can't OOM in the middle of our complex work.
-  ///   for (index, value) in data.iter().cloned().enumerate() {
-  ///     output.insert(index, value);
-  ///   }  
-  ///
-  ///   Ok(output)
-  /// }
-  /// # process_data(&[1, 2, 3]).expect("why is the test harness OOMing on 12 bytes?");
-  /// ```
-  pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-    if self.needs_to_grow(self.dense_len, additional) {
-      self.grow_exact(self.dense_len, additional)
-    } else {
-      Ok(())
+  /// This operation is *O*(*m*).
+  #[must_use]
+  fn max_index(&self) -> usize {
+    for (index, value) in self.sparse.iter().rev().enumerate() {
+      if value.is_some() {
+        return self.sparse.len() - index;
+      }
     }
+
+    0
   }
 
-  /// Returns an iterator over the sparse set.
+  /// Returns an iterator over the sparse set's values.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
   ///
   /// # Examples
   ///
@@ -697,7 +964,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// assert_eq!(iterator.next(), None);
   /// ```
   pub fn values(&self) -> impl Iterator<Item = &T> {
-    self.iter()
+    self.dense.iter()
   }
 
   /// Returns an iterator that allows modifying each value.
@@ -719,361 +986,35 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
   /// assert!(set.values().eq(&[3, 4, 5]));
   /// ```
   pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
-    self.as_mut_slice().iter_mut()
+    self.dense.iter_mut()
   }
 }
 
-impl<I, T, A: Allocator> SparseSet<I, T, A> {
-  /// Tiny SparseSets are dumb. Skip to:
-  /// - 8 if the element size is 1, because any heap allocators is likely
-  ///   to round up a request of less than 8 bytes to at least 8 bytes.
-  /// - 4 if elements are moderate-sized (<= 1 KiB).
-  /// - 1 otherwise, to avoid wasting too much space for very short SparseSets.
-  const MIN_NON_ZERO_CAP: usize = if mem::size_of::<T>() == 1 {
-    8
-  } else if mem::size_of::<T>() <= 1024 {
-    4
-  } else {
-    1
-  };
-
-  /// Allocates a new block of memory enough to hold `capacity` number of elements and copies all existing elements from
-  /// the old allocated memory.
-  ///
-  /// # Safety
-  ///
-  /// The caller must ensure that the capacity requested is larger than the current length.
-  unsafe fn allocate_and_copy(
-    &self,
-    capacity: usize,
-  ) -> Result<(NonNull<u8>, NonNull<u8>), TryReserveError> {
-    debug_assert!(capacity >= self.sparse_len);
-    let (layout, sparse_offset) =
-      Self::layout(capacity).map_err(|_| TryReserveErrorKind::CapacityOverflow)?;
-
-    alloc_guard(layout.size())?;
-
-    let ptr = self
-      .alloc
-      .allocate(layout)
-      .map_err(|_| {
-        let error: TryReserveError = TryReserveErrorKind::AllocError {
-          layout,
-          non_exhaustive: (),
-        }
-        .into();
-        error
-      })?
-      .as_non_null_ptr();
-
-    if let Some((_, old_layout)) = self.current_memory() {
-      unsafe {
-        ptr::copy_nonoverlapping(self.as_ptr(), ptr.as_ptr().cast::<T>(), self.dense_len);
-        ptr::copy_nonoverlapping(
-          self.as_sparse_ptr(),
-          ptr
-            .as_ptr()
-            .add(sparse_offset)
-            .cast::<Option<NonZeroUsize>>(),
-          self.sparse_len,
-        );
-
-        self.alloc.deallocate(self.dense_ptr, old_layout);
-      }
-    }
-
-    Ok(unsafe { Self::retrieve_ptrs(ptr, sparse_offset) })
-  }
-
-  /// Allocates memory to in order for the set to hold `capacity` elements.
-  #[cfg(not(no_global_oom_handling))]
-  fn allocate_in(capacity: usize, alloc: A) -> Self {
-    // Don't allocate here because `Drop` will not deallocate when `capacity` is 0.
-    if capacity == 0 {
-      Self::new_in(alloc)
-    } else {
-      // We avoid `unwrap_or_else` here because it bloats the amount of LLVM IR generated.
-      let (layout, sparse_offset) = match Self::layout(capacity) {
-        Ok(res) => res,
-        Err(_) => capacity_overflow(),
-      };
-
-      match alloc_guard(layout.size()) {
-        Ok(_) => {}
-        Err(_) => capacity_overflow(),
-      }
-
-      let ptr = match alloc.allocate(layout) {
-        Ok(ptr) => ptr.as_non_null_ptr(),
-        Err(_) => alloc::handle_alloc_error(layout),
-      };
-      let (dense_ptr, sparse_ptr) = unsafe { Self::retrieve_ptrs(ptr, sparse_offset) };
-
-      // Allocators currently return a `NonNull<[u8]>` whose len matches the size requested. If that ever
-      // changes, the capacity here should change.
-      Self {
-        alloc,
-        capacity,
-        _marker: (PhantomData, PhantomData),
-        dense_ptr,
-        dense_len: 0,
-        sparse_ptr,
-        sparse_len: 0,
-      }
-    }
-  }
-
-  /// Extracts a mutable slice of the entire sparse set's buffer.
-  ///
-  /// The caller must ensure they do not cause the dense and sparse buffers to become out of sync.
-  #[must_use]
-  fn as_mut_slice(&mut self) -> &mut [T] {
-    unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.dense_len) }
-  }
-
-  /// Returns an unsafe mutable pointer to the sparse set's buffer, or a dangling raw pointer valid for zero sized reads
-  /// if the sparse set didn't allocate.
-  ///
-  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
-  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
-  /// pointers to it invalid.
-  ///
-  /// The caller must also ensure they do not cause the dense and sparse buffers to become out of sync.
-  #[must_use]
-  fn as_mut_ptr(&mut self) -> *mut T {
-    // We shadow the slice method of the same name to avoid going through `deref_mut`, which creates an intermediate
-    // reference.
-    self.dense_ptr.as_ptr() as *mut T
-  }
-
-  /// Returns a raw pointer to the sparse set's sparse buffer, or a dangling raw pointer valid for zero sized reads if
-  /// the sparse set didn't allocate.
-  ///
-  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
-  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
-  /// pointers to it invalid.
-  ///
-  /// The caller must also ensure that the memory the pointer (non-transitively) points to is never written to (except
-  /// inside an `UnsafeCell`) using this pointer or any pointer derived from it. If you need to mutate the contents of
-  /// the slice, use [`as_mut_ptr`].
-  #[must_use]
-  fn as_sparse_ptr(&self) -> *const Option<NonZeroUsize> {
-    // We shadow the slice method of the same name to avoid going through `deref`, which creates an intermediate
-    // reference.
-    self.sparse_ptr.as_ptr() as *const Option<NonZeroUsize>
-  }
-
-  /// Returns an unsafe mutable pointer to the sparse set's sparse buffer, or a dangling raw pointer valid for zero
-  /// sized reads if the sparse set didn't allocate.
-  ///
-  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
-  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
-  /// pointers to it invalid.
-  ///
-  /// The caller must also ensure they do not cause the dense and sparse buffers to become out of sync.
-  #[must_use]
-  fn as_sparse_mut_ptr(&mut self) -> *mut Option<NonZeroUsize> {
-    // We shadow the slice method of the same name to avoid going through `deref_mut`, which creates an intermediate
-    // reference.
-    self.sparse_ptr.as_ptr() as *mut Option<NonZeroUsize>
-  }
-
-  /// Extracts a slice containing the entire sparse set's sparse buffer.
-  #[must_use]
-  fn as_sparse_slice(&self) -> &[Option<NonZeroUsize>] {
-    unsafe { slice::from_raw_parts(self.as_sparse_ptr(), self.sparse_len) }
-  }
-
-  /// Extracts a mutable slice of the entire sparse set's sparse buffer.
-  ///
-  /// The caller must ensure they do not cause the dense and sparse buffers to become out of sync.
-  #[must_use]
-  fn as_sparse_mut_slice(&mut self) -> &mut [Option<NonZeroUsize>] {
-    unsafe { slice::from_raw_parts_mut(self.as_sparse_mut_ptr(), self.sparse_len) }
-  }
-
-  /// Returns a pointer to the currently allocated memory, if any, and its layout.
-  #[must_use]
-  fn current_memory(&self) -> Option<(NonNull<u8>, Layout)> {
-    if self.capacity == 0 {
-      None
-    } else {
-      // We have an allocated chunk of memory, so we can bypass runtime checks to get our current layout.
-      unsafe {
-        let layout = Self::layout(self.capacity).unwrap_unchecked().0;
-        Some((self.dense_ptr, layout))
-      }
-    }
-  }
-
-  /// This method is usually instantiated many times. So we want it to be as small as possible, to improve compile times.
-  /// But we also want as much of its contents to be statically computable as possible, to make the generated code run
-  /// faster. Therefore, this method is carefully written so that all of the code that depends on `T` is within it,
-  /// while as much of the code that doesn't depend on `T` as possible is in functions that are non-generic over `T`.
-  fn grow_amortized(&mut self, len: usize, additional: usize) -> Result<(), TryReserveError> {
-    // This is ensured by the calling contexts.
-    debug_assert!(additional > 0);
-
-    // Nothing we can really do about these checks, sadly.
-    let required_capacity = len
-      .checked_add(additional)
-      .ok_or(TryReserveErrorKind::CapacityOverflow)?;
-
-    // This guarantees exponential growth. The doubling cannot overflow because `cap <= isize::MAX` and the type of
-    // `cap` is `usize`.
-    let capacity = cmp::max(self.capacity * 2, required_capacity);
-    let capacity = cmp::max(Self::MIN_NON_ZERO_CAP, capacity);
-
-    let (dense_ptr, sparse_ptr) = unsafe { self.allocate_and_copy(capacity)? };
-    self.set_ptrs_and_capacity(dense_ptr, sparse_ptr, capacity);
-    Ok(())
-  }
-
-  /// The constraints on this method are much the same as those on `grow_amortized`, but this method is usually
-  /// instantiated less often so it's less critical.
-  fn grow_exact(&mut self, len: usize, additional: usize) -> Result<(), TryReserveError> {
-    let capacity = len
-      .checked_add(additional)
-      .ok_or(TryReserveErrorKind::CapacityOverflow)?;
-
-    let (dense_ptr, sparse_ptr) = unsafe { self.allocate_and_copy(capacity)? };
-    self.set_ptrs_and_capacity(dense_ptr, sparse_ptr, capacity);
-    Ok(())
-  }
-
-  /// Returns a layout necessary to allocate memory for the dense and sparse arrays.
-  fn layout(capacity: usize) -> Result<(Layout, usize), LayoutError> {
-    let dense_layout = Layout::array::<T>(capacity)?;
-    let sparse_layout = Layout::array::<Option<NonZeroUsize>>(capacity)?;
-    dense_layout.extend(sparse_layout)
-  }
-
-  /// Returns if the buffer needs to grow to fulfill the needed extra capacity.
-  ///
-  /// Mainly used to make inlining reserve-calls possible without inlining `grow`.
-  #[must_use]
-  fn needs_to_grow(&self, len: usize, additional: usize) -> bool {
-    additional > self.capacity.wrapping_sub(len)
-  }
-
-  /// From a pointer to allocated memory using the correct layout, this returns the corresponding pointers to the dense
-  /// and sparse inner layouts.
-  #[must_use]
-  unsafe fn retrieve_ptrs(ptr: NonNull<u8>, sparse_offset: usize) -> (NonNull<u8>, NonNull<u8>) {
-    let sparse_ptr = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(sparse_offset)) };
-    (ptr, sparse_ptr)
-  }
-
-  /// Updates internal pointers and capacity.
-  fn set_ptrs_and_capacity(
-    &mut self,
-    dense_ptr: NonNull<u8>,
-    sparse_ptr: NonNull<u8>,
-    capacity: usize,
-  ) {
-    // Allocators currently return a `NonNull<[u8]>` whose len matches the size requested. If that ever changes,
-    // the capacity here should change.
-    self.capacity = capacity;
-    self.dense_ptr = dense_ptr;
-    self.sparse_ptr = sparse_ptr;
-  }
-
-  fn shrink(&mut self, capacity: usize) -> Result<(), TryReserveError> {
-    debug_assert!(
-      capacity <= self.capacity,
-      "Tried to shrink to a larger capacity"
-    );
-
-    let (dense_ptr, sparse_ptr) = unsafe { self.allocate_and_copy(capacity)? };
-    self.set_ptrs_and_capacity(dense_ptr, sparse_ptr, capacity);
-    Ok(())
-  }
-}
-
-impl<I: SparseSetIndex, T, A: Allocator> SparseSet<I, T, A> {
-  /// Inserts the value at the given index, presented as a `usize` rather than `I`.
-  pub(crate) fn insert_raw(&mut self, index: usize, value: T) {
-    let len = self.len();
-
-    match self.as_sparse_slice().get(index) {
-      Some(Some(dense_index)) => {
-        let dense_index: NonZeroUsize = *dense_index;
-        unsafe { ptr::write(self.as_mut_ptr().add(dense_index.get() - 1), value) };
-      }
-      opt => {
-        if opt.is_none() {
-          self.resize_sparse(index + 1);
-        }
-
-        self.dense_len += 1;
-        self.as_sparse_mut_slice()[index] = Some(NonZeroUsize::new(len + 1).unwrap());
-        unsafe { ptr::write(self.as_mut_ptr().add(len), value) };
-      }
-    }
-  }
-
-  /// Resizes the sparse buffer in-place so that `len` is equal to `new_len`.
-  ///
-  /// `new_len` must be greater than or equal to `len`.
-  #[cfg(not(no_global_oom_handling))]
-  fn resize_sparse(&mut self, new_len: usize) {
-    let len = self.sparse_len;
-    debug_assert!(new_len >= len);
-
-    let n = new_len - len;
-    self.reserve(n);
-
-    unsafe {
-      let mut ptr = self.as_sparse_mut_ptr().add(self.sparse_len);
-
-      // Write all elements.
-      for _ in 0..n {
-        ptr::write(ptr, None);
-        ptr = ptr.add(1);
-      }
-    }
-
-    self.sparse_len = new_len;
-  }
-}
-
-impl<I: SparseSetIndex, T, A: Allocator> AsRef<SparseSet<I, T, A>> for SparseSet<I, T, A> {
-  fn as_ref(&self) -> &SparseSet<I, T, A> {
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsRef<SparseSet<I, T, SA, DA>>
+  for SparseSet<I, T, SA, DA>
+{
+  fn as_ref(&self) -> &Self {
     self
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> AsRef<[T]> for SparseSet<I, T, A> {
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsMut<SparseSet<I, T, SA, DA>>
+  for SparseSet<I, T, SA, DA>
+{
+  fn as_mut(&mut self) -> &mut Self {
+    self
+  }
+}
+
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsRef<[T]> for SparseSet<I, T, SA, DA> {
   fn as_ref(&self) -> &[T] {
-    self
+    &self.dense
   }
 }
 
-#[cfg(not(no_global_oom_handling))]
-impl<I: SparseSetIndex, T: Clone, A: Allocator + Clone> Clone for SparseSet<I, T, A> {
-  fn clone(&self) -> Self {
-    if self.capacity == 0 {
-      return Self::new_in(self.alloc.clone());
-    }
-
-    let mut cloned_set = Self::with_capacity_in(self.sparse_len, self.alloc.clone());
-
-    for (index, value) in self.as_slice().iter().enumerate() {
-      let clone = ManuallyDrop::new(value.clone());
-      unsafe { ptr::copy_nonoverlapping(&*clone, cloned_set.as_mut_ptr().add(index), 1) };
-      cloned_set.dense_len += 1;
-      cloned_set.sparse_len += 1;
-    }
-
-    unsafe {
-      ptr::copy_nonoverlapping(
-        self.as_sparse_ptr(),
-        cloned_set.as_sparse_mut_ptr(),
-        self.sparse_len,
-      )
-    };
-
-    cloned_set
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsMut<[T]> for SparseSet<I, T, SA, DA> {
+  fn as_mut(&mut self) -> &mut [T] {
+    &mut self.dense
   }
 }
 
@@ -1083,61 +1024,115 @@ impl<I, T> Default for SparseSet<I, T> {
   }
 }
 
-impl<I, T, A: Allocator> Deref for SparseSet<I, T, A> {
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Deref for SparseSet<I, T, SA, DA> {
   type Target = [T];
 
   fn deref(&self) -> &[T] {
-    unsafe { slice::from_raw_parts(self.dense_ptr.as_ptr() as *const T, self.dense_len) }
+    &*self.dense
   }
 }
 
-impl<I, T: fmt::Debug, A: Allocator> fmt::Debug for SparseSet<I, T, A> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    fmt::Debug::fmt(&**self, f)
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> DerefMut for SparseSet<I, T, SA, DA> {
+  fn deref_mut(&mut self) -> &mut [T] {
+    &mut *self.dense
   }
 }
 
-unsafe impl<I, #[may_dangle] T, A: Allocator> Drop for SparseSet<I, T, A> {
-  fn drop(&mut self) {
-    unsafe {
-      // Use drop for [T]. Use a raw slice to refer to the elements of the sparse set as weakest necessary type; Could
-      // avoid questions of validity in certain cases
-      ptr::drop_in_place(ptr::slice_from_raw_parts_mut(
-        self.as_mut_ptr(),
-        self.dense_len,
-      ))
-    };
-
-    if let Some((ptr, layout)) = self.current_memory() {
-      unsafe { self.alloc.deallocate(ptr, layout) };
-    }
+impl<I, T: fmt::Debug, SA: Allocator, DA: Allocator> fmt::Debug for SparseSet<I, T, SA, DA> {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.dense.fmt(formatter)
   }
 }
 
 #[cfg(not(no_global_oom_handling))]
-impl<I: SparseSetIndex, T, A: Allocator> Extend<(I, T)> for SparseSet<I, T, A> {
+impl<'a, I: SparseSetIndex, T: Copy + 'a, SA: Allocator + 'a, DA: Allocator + 'a> Extend<(I, &'a T)>
+  for SparseSet<I, T, SA, DA>
+{
+  fn extend<Iter: IntoIterator<Item = (I, &'a T)>>(&mut self, iter: Iter) {
+    for (index, &value) in iter {
+      self.insert(index, value);
+    }
+  }
+
+  #[inline]
+  fn extend_one(&mut self, (index, &value): (I, &'a T)) {
+    self.insert(index, value);
+  }
+
+  #[inline]
+  fn extend_reserve(&mut self, additional: usize) {
+    self.reserve_dense(additional);
+    self.reserve_sparse(additional);
+  }
+}
+
+#[cfg(not(no_global_oom_handling))]
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Extend<(I, T)>
+  for SparseSet<I, T, SA, DA>
+{
   fn extend<Iter: IntoIterator<Item = (I, T)>>(&mut self, iter: Iter) {
     for (index, value) in iter {
       self.insert(index, value);
     }
   }
 
+  #[inline]
+  fn extend_one(&mut self, (index, value): (I, T)) {
+    self.insert(index, value);
+  }
+
+  #[inline]
   fn extend_reserve(&mut self, additional: usize) {
-    self.reserve(additional);
+    self.reserve_dense(additional);
+    self.reserve_sparse(additional);
+  }
+}
+
+#[cfg(not(no_global_oom_handling))]
+impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseSet<I, T> {
+  fn from(slice: [(I, T); N]) -> Self {
+    let mut set = SparseSet::with_capacity(slice.len(), slice.len());
+
+    for (index, value) in slice {
+      set.insert(index, value);
+    }
+
+    set
   }
 }
 
 #[cfg(not(no_global_oom_handling))]
 impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
-  #[inline]
   fn from_iter<Iter: IntoIterator<Item = (I, T)>>(iter: Iter) -> Self {
-    let mut set = SparseSet::new();
-    set.extend(iter);
+    let iter = iter.into_iter();
+    let capacity = if let Some(size_hint) = iter.size_hint().1 {
+      size_hint
+    } else {
+      iter.size_hint().0
+    };
+    let mut set = SparseSet::with_capacity(capacity, capacity);
+
+    for (index, value) in iter {
+      set.insert(index, value);
+    }
+
     set
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> Index<I> for SparseSet<I, T, A> {
+impl<I, T: Hash, SA: Allocator, DA: Allocator> Hash for SparseSet<I, T, SA, DA> {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    for index in self.sparse.iter() {
+      index.is_some().hash(state);
+
+      if let Some(index) = index {
+        unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
+      }
+    }
+  }
+}
+
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Index<I> for SparseSet<I, T, SA, DA> {
   type Output = T;
 
   fn index(&self, index: I) -> &Self::Output {
@@ -1145,13 +1140,25 @@ impl<I: SparseSetIndex, T, A: Allocator> Index<I> for SparseSet<I, T, A> {
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> IndexMut<I> for SparseSet<I, T, A> {
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IndexMut<I> for SparseSet<I, T, SA, DA> {
   fn index_mut(&mut self, index: I) -> &mut Self::Output {
     self.get_mut(index).unwrap()
   }
 }
 
-impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a SparseSet<I, T, A> {
+impl<I, T, SA: Allocator, DA: Allocator> IntoIterator for SparseSet<I, T, SA, DA> {
+  type Item = T;
+  type IntoIter = impl Iterator<Item = Self::Item>;
+
+  #[inline]
+  fn into_iter(self) -> Self::IntoIter {
+    self.dense.into_iter()
+  }
+}
+
+impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
+  for &'a SparseSet<I, T, SA, DA>
+{
   type Item = &'a T;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -1160,7 +1167,9 @@ impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a SparseSet<I, T
   }
 }
 
-impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a mut SparseSet<I, T, A> {
+impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
+  for &'a mut SparseSet<I, T, SA, DA>
+{
   type Item = &'a mut T;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -1169,46 +1178,46 @@ impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a mut SparseSet<
   }
 }
 
+impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
+  for SparseSet<I, T, SA, DA>
+{
+  fn eq(&self, other: &Self) -> bool {
+    if self.indices.len() != other.indices.len() {
+      return false;
+    }
+
+    for index in self.indices.iter() {
+      let index = index.clone().into();
+
+      match (self.sparse.get(index), other.sparse.get(index)) {
+        (Some(Some(index)), Some(Some(other_index))) => {
+          if self.dense.get(index.get() - 1) != other.dense.get(other_index.get() - 1) {
+            return false;
+          }
+        }
+        (None, None) | (Some(None), Some(None)) => {}
+        _ => {
+          return false;
+        }
+      }
+    }
+
+    true
+  }
+}
+
+impl<I: SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
+
 /// A type with this trait indicates it can be used as an index into a `SparseSet`.
-pub trait SparseSetIndex: Into<usize> {}
+///
+/// Two indices must convert to the same `usize` if and only if they are equal.
+pub trait SparseSetIndex: Clone + Into<usize> {}
 
 impl SparseSetIndex for usize {}
 
-/// We need to guarantee the following:
-/// * We don't ever allocate `> isize::MAX` byte-size objects.
-/// * We don't overflow `usize::MAX` and actually allocate too little.
-///
-/// On 64-bit we just need to check for overflow since trying to allocate `> isize::MAX` bytes will surely fail. On
-/// 32-bit and 16-bit we need to add an extra guard for this in case we're running on a platform which can use all 4GB
-/// in user-space, e.g., PAE or x32.
-fn alloc_guard(alloc_size: usize) -> Result<(), TryReserveError> {
-  if usize::BITS < 64 && alloc_size > isize::MAX as usize {
-    Err(TryReserveErrorKind::CapacityOverflow.into())
-  } else {
-    Ok(())
-  }
-}
-
-/// One central function responsible for reporting capacity overflows. This'll ensure that the code generation related
-/// to these panics is minimal as there's only one location which panics rather than a bunch throughout the module.
-#[cfg(not(no_global_oom_handling))]
-fn capacity_overflow() -> ! {
-  panic!("capacity overflow");
-}
-
-/// Central function for reserve error handling.
-#[cfg(not(no_global_oom_handling))]
-fn handle_reserve<T>(result: Result<T, TryReserveError>) -> T {
-  match result.map_err(|error| error.kind()) {
-    Err(TryReserveErrorKind::CapacityOverflow) => capacity_overflow(),
-    Err(TryReserveErrorKind::AllocError { layout, .. }) => alloc::handle_alloc_error(layout),
-    Ok(res) => res,
-  }
-}
-
 #[cfg(test)]
 pub mod test {
-  use std::{cell::RefCell, rc::Rc};
+  use std::{cell::RefCell, collections::hash_map::DefaultHasher, rc::Rc};
 
   use coverage_helper::test;
 
@@ -1223,62 +1232,85 @@ pub mod test {
     }
   }
 
-  #[derive(Clone, Debug, Eq, PartialEq)]
-  struct Zst;
-
-  #[test]
-  fn test_zst_is_zero() {
-    assert_eq!(mem::size_of::<Zst>(), 0);
-  }
-
   #[test]
   fn test_new() {
     let set: SparseSet<usize, usize> = SparseSet::new();
     assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
-  }
-
-  #[test]
-  fn test_new_zst() {
-    let set: SparseSet<usize, Zst> = SparseSet::new();
-    assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
+    assert_eq!(set.sparse_capacity(), 0);
   }
 
   #[test]
   fn test_with_capacity() {
-    let set: SparseSet<usize, usize> = SparseSet::with_capacity(10);
-    assert_eq!(set.capacity(), 10);
+    let set: SparseSet<usize, usize> = SparseSet::with_capacity(15, 10);
+    assert_eq!(set.sparse_capacity(), 15);
+    assert_eq!(set.dense_capacity(), 10);
   }
 
   #[test]
   fn test_with_capacity_zero() {
-    let set: SparseSet<usize, usize> = SparseSet::with_capacity(0);
-    assert_eq!(set.capacity(), 0);
+    let set: SparseSet<usize, usize> = SparseSet::with_capacity(0, 0);
+    assert_eq!(set.sparse_capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
   }
 
   #[should_panic]
   #[test]
-  fn test_with_capacity_overflow() {
-    let _: SparseSet<usize, usize> = SparseSet::with_capacity(usize::MAX);
+  fn test_with_capacity_dense_greater_than_sparse() {
+    let _: SparseSet<usize, usize> = SparseSet::with_capacity(0, 1);
+  }
+
+  #[should_panic]
+  #[test]
+  fn test_with_capacity_sparse_overflow() {
+    let _: SparseSet<usize, usize> = SparseSet::with_capacity(usize::MAX, 0);
+  }
+
+  #[should_panic]
+  #[test]
+  fn test_with_capacity_dense_overflow() {
+    let _: SparseSet<usize, usize> = SparseSet::with_capacity(0, usize::MAX);
   }
 
   #[test]
-  fn test_with_capacity_zst() {
-    let set: SparseSet<usize, Zst> = SparseSet::with_capacity(10);
-    assert_eq!(set.capacity(), 10);
-  }
-
-  #[test]
-  fn test_allocator() {
+  fn test_dense_allocator() {
     let set: SparseSet<usize, usize> = SparseSet::new();
-    let _ = set.allocator();
+    let _ = set.dense_allocator();
   }
 
   #[test]
-  fn test_as_ptr() {
-    let set: SparseSet<usize, usize> = SparseSet::with_capacity(10);
-    assert_eq!(set.as_ptr(), set.as_slice().as_ptr());
+  fn test_sparse_allocator() {
+    let set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.sparse_allocator();
+  }
+
+  #[test]
+  fn test_as_dense_slice() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    set.insert(0, 1);
+    assert_eq!(set.as_dense_slice(), &[1]);
+  }
+
+  #[test]
+  fn test_as_dense_mut_slice() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    set.insert(0, 1);
+    assert_eq!(set.as_dense_mut_slice(), &mut [1]);
+  }
+
+  #[test]
+  fn test_as_dense_ptr() {
+    let set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
+    assert_eq!(set.as_dense_ptr(), set.as_dense_slice().as_ptr());
+  }
+
+  #[test]
+  fn test_as_dense_mut_ptr() {
+    let mut set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
+    assert_eq!(
+      set.as_dense_mut_ptr(),
+      set.as_dense_mut_slice().as_mut_ptr()
+    );
   }
 
   #[test]
@@ -1293,44 +1325,10 @@ pub mod test {
   }
 
   #[test]
-  fn test_clear_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    set.clear();
-
-    assert!(set.is_empty());
-  }
-
-  #[test]
-  fn test_clear_drops() {
-    let num_dropped = Rc::new(RefCell::new(0));
-    let mut set = SparseSet::new();
-    let value = Value(num_dropped.clone());
-    set.insert(0, value.clone());
-    set.insert(1, value.clone());
-    set.insert(2, value.clone());
-    set.clear();
-
-    assert_eq!(*num_dropped.borrow(), 3);
-  }
-
-  #[test]
   fn test_contains() {
     let mut set = SparseSet::new();
     assert!(!set.contains(0));
     set.insert(0, 1);
-    assert!(set.contains(0));
-    let _ = set.remove(0);
-    assert!(!set.contains(0));
-  }
-
-  #[test]
-  fn test_contains_zst() {
-    let mut set = SparseSet::new();
-    assert!(!set.contains(0));
-    set.insert(0, Zst);
     assert!(set.contains(0));
     let _ = set.remove(0);
     assert!(!set.contains(0));
@@ -1349,18 +1347,6 @@ pub mod test {
   }
 
   #[test]
-  fn test_get_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-
-    assert_eq!(set.get(0), Some(&Zst));
-    assert_eq!(set.get(2), Some(&Zst));
-    assert_eq!(set.get(100), None);
-  }
-
-  #[test]
   fn test_get_mut() {
     let mut set = SparseSet::new();
     set.insert(0, 1);
@@ -1375,70 +1361,50 @@ pub mod test {
   }
 
   #[test]
-  fn test_get_mut_zst() {
+  fn test_indices() {
     let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
+    assert!(set.indices().eq(&[]));
 
-    assert_eq!(set.get_mut(2), Some(&mut Zst));
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert!(set.indices().eq(&[0, 1, 2]));
   }
 
   #[test]
   fn test_insert_capacity_increases() {
-    let mut set = SparseSet::with_capacity(1);
+    let mut set = SparseSet::with_capacity(1, 1);
     set.insert(0, 1);
-    assert_eq!(set.capacity(), 1);
+    assert_eq!(set.sparse_capacity(), 1);
+    assert_eq!(set.dense_capacity(), 1);
 
     set.insert(1, 2);
-    assert!(set.capacity() >= 2);
+    assert!(set.sparse_capacity() >= 2);
+    assert!(set.dense_capacity() >= 2);
 
     assert_eq!(set.get(0), Some(&1));
     assert_eq!(set.get(1), Some(&2));
   }
 
   #[test]
-  fn test_insert_capacity_increases_zst() {
-    let mut set = SparseSet::with_capacity(1);
-    set.insert(0, Zst);
-    assert_eq!(set.capacity(), 1);
-
-    set.insert(1, Zst);
-    assert!(set.capacity() >= 2);
-
-    assert_eq!(set.get(0), Some(&Zst));
-    assert_eq!(set.get(1), Some(&Zst));
-  }
-
-  #[test]
   fn test_insert_len_increases() {
-    let mut set = SparseSet::with_capacity(1);
+    let mut set = SparseSet::new();
     set.insert(0, 1);
-    assert_eq!(set.len(), 1);
+    assert_eq!(set.dense_len(), 1);
+    assert_eq!(set.sparse_len(), 1);
 
     set.insert(1, 2);
-    assert_eq!(set.len(), 2);
+    assert_eq!(set.dense_len(), 2);
+    assert_eq!(set.sparse_len(), 2);
 
     set.insert(100, 101);
-    assert_eq!(set.len(), 3);
-  }
-
-  #[test]
-  fn test_insert_len_increases_zst() {
-    let mut set = SparseSet::with_capacity(1);
-    set.insert(0, Zst);
-    assert_eq!(set.len(), 1);
-
-    set.insert(1, Zst);
-    assert_eq!(set.len(), 2);
-
-    set.insert(100, Zst);
-    assert_eq!(set.len(), 3);
+    assert_eq!(set.dense_len(), 3);
+    assert_eq!(set.sparse_len(), 101);
   }
 
   #[test]
   fn test_insert_overwrites() {
-    let mut set = SparseSet::with_capacity(1);
+    let mut set = SparseSet::new();
     set.insert(0, 1);
     assert_eq!(set.get(0), Some(&1));
 
@@ -1459,29 +1425,30 @@ pub mod test {
   }
 
   #[test]
-  fn test_is_empty_zst() {
+  fn test_dense_len() {
     let mut set = SparseSet::new();
-    assert!(set.is_empty());
+    assert_eq!(set.dense_len(), 0);
 
-    set.insert(0, Zst);
-    assert!(!set.is_empty());
+    set.insert(0, 1);
+    assert_eq!(set.dense_len(), 1);
+  }
 
-    let _ = set.remove(0);
-    assert!(set.is_empty());
+  #[test]
+  fn test_sparse_len() {
+    let mut set = SparseSet::new();
+    assert_eq!(set.sparse_len(), 0);
+
+    set.insert(0, 1);
+    assert_eq!(set.sparse_len(), 1);
+
+    set.insert(100, 1);
+    assert_eq!(set.sparse_len(), 101);
   }
 
   #[test]
   fn test_remove_can_return_none() {
     let mut set = SparseSet::new();
     set.insert(0, 1);
-    assert_eq!(set.remove(1), None);
-    assert_eq!(set.remove(100), None);
-  }
-
-  #[test]
-  fn test_remove_can_return_none_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
     assert_eq!(set.remove(1), None);
     assert_eq!(set.remove(100), None);
   }
@@ -1494,34 +1461,19 @@ pub mod test {
   }
 
   #[test]
-  fn test_remove_can_return_some_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    assert_eq!(set.remove(0), Some(Zst));
-  }
-
-  #[test]
   fn test_remove_len_decreases() {
     let mut set = SparseSet::new();
     set.insert(0, 1);
     set.insert(1, 2);
-    assert_eq!(set.len(), 2);
-    assert_eq!(set.remove(0), Some(1));
-    assert_eq!(set.len(), 1);
-    assert_eq!(set.remove(0), None);
-    assert_eq!(set.len(), 1);
-  }
 
-  #[test]
-  fn test_remove_len_decreases_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    assert_eq!(set.len(), 2);
-    assert_eq!(set.remove(0), Some(Zst));
-    assert_eq!(set.len(), 1);
+    assert_eq!(set.dense_len(), 2);
+    assert_eq!(set.sparse_len(), 2);
+    assert_eq!(set.remove(0), Some(1));
+    assert_eq!(set.dense_len(), 1);
+    assert_eq!(set.sparse_len(), 2);
     assert_eq!(set.remove(0), None);
-    assert_eq!(set.len(), 1);
+    assert_eq!(set.dense_len(), 1);
+    assert_eq!(set.sparse_len(), 2);
   }
 
   #[test]
@@ -1538,149 +1490,203 @@ pub mod test {
   }
 
   #[test]
-  fn test_reserve() {
+  fn test_reserve_dense() {
     let mut set = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
 
-    set.reserve(3);
-    let capacity = set.capacity();
+    set.reserve_dense(3);
+    let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
     set.insert(0, 1);
     set.insert(1, 2);
 
-    set.reserve(1);
-    assert_eq!(set.capacity(), capacity);
+    set.reserve_dense(1);
+    assert_eq!(set.dense_capacity(), capacity);
   }
 
   #[test]
-  fn test_reserve_zst() {
+  fn test_reserve_sparse() {
     let mut set = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.sparse_capacity(), 0);
 
-    set.reserve(3);
-    let capacity = set.capacity();
-    assert!(capacity >= 2);
-
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-
-    set.reserve(1);
-    assert_eq!(set.capacity(), capacity);
-  }
-
-  #[test]
-  fn test_reserve_exact() {
-    let mut set = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
-
-    set.reserve_exact(3);
-    let capacity = set.capacity();
+    set.reserve_sparse(3);
+    let capacity = set.sparse_capacity();
     assert!(capacity >= 2);
 
     set.insert(0, 1);
     set.insert(1, 2);
 
-    set.reserve_exact(1);
-    assert_eq!(set.capacity(), capacity);
+    set.reserve_sparse(1);
+    assert_eq!(set.sparse_capacity(), capacity);
   }
 
   #[test]
-  fn test_reserve_exact_zst() {
+  fn test_reserve_exact_dense() {
     let mut set = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
 
-    set.reserve_exact(3);
-    let capacity = set.capacity();
+    set.reserve_exact_dense(3);
+    let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, Zst);
-    set.insert(1, Zst);
+    set.insert(0, 1);
+    set.insert(1, 2);
 
-    set.reserve_exact(1);
-    assert_eq!(set.capacity(), capacity);
+    set.reserve_exact_dense(1);
+    assert_eq!(set.dense_capacity(), capacity);
   }
 
   #[test]
-  fn test_shrink_to_fit() {
-    let mut set = SparseSet::with_capacity(3);
+  fn test_reserve_exact_sparse() {
+    let mut set = SparseSet::new();
+    assert_eq!(set.sparse_capacity(), 0);
+
+    set.reserve_exact_sparse(3);
+    let capacity = set.sparse_capacity();
+    assert!(capacity >= 2);
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+
+    set.reserve_exact_sparse(1);
+    assert_eq!(set.sparse_capacity(), capacity);
+  }
+
+  #[test]
+  fn test_shrink_to_fit_dense() {
+    let mut set = SparseSet::with_capacity(3, 3);
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+
+    assert_eq!(set.dense_capacity(), 3);
+    let _ = set.remove(2);
+    set.shrink_to_fit_dense();
+    assert_eq!(set.dense_capacity(), 2);
+  }
+
+  #[test]
+  fn test_shrink_to_fit_sparse() {
+    let mut set = SparseSet::with_capacity(3, 3);
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
 
-    assert_eq!(set.capacity(), 3);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 3);
     let _ = set.remove(2);
-    set.shrink_to_fit();
-    assert_eq!(set.capacity(), 2);
+    set.shrink_to_fit_sparse();
+    assert_eq!(set.sparse_capacity(), 2);
+    assert_eq!(set.sparse_len(), 2);
   }
 
   #[test]
-  fn test_shrink_to_fit_zst() {
-    let mut set = SparseSet::with_capacity(3);
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-
-    assert_eq!(set.capacity(), 3);
-    let _ = set.remove(2);
-    set.shrink_to_fit();
-    assert_eq!(set.capacity(), 2);
-  }
-
-  #[test]
-  fn test_shrink_to_can_reduce() {
-    let mut set = SparseSet::with_capacity(3);
+  fn test_shrink_to_dense_can_reduce() {
+    let mut set = SparseSet::with_capacity(3, 3);
     set.insert(0, 1);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(1);
-    assert_eq!(set.capacity(), 1);
+    assert_eq!(set.dense_capacity(), 3);
+    set.shrink_to_dense(1);
+    assert_eq!(set.dense_capacity(), 1);
   }
 
   #[test]
-  fn test_shrink_to_can_reduce_zst() {
-    let mut set = SparseSet::with_capacity(3);
-    set.insert(0, Zst);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(1);
-    assert_eq!(set.capacity(), 1);
-  }
-
-  #[test]
-  fn test_shrink_to_cannot_reduce() {
-    let mut set = SparseSet::with_capacity(3);
+  fn test_shrink_to_dense_cannot_reduce() {
+    let mut set = SparseSet::with_capacity(3, 3);
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(0);
-    assert_eq!(set.capacity(), 3);
+    assert_eq!(set.dense_capacity(), 3);
+    set.shrink_to_dense(0);
+    assert_eq!(set.dense_capacity(), 3);
   }
 
   #[test]
-  fn test_shrink_to_cannot_reduce_zst() {
-    let mut set = SparseSet::with_capacity(3);
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(0);
-    assert_eq!(set.capacity(), 3);
+  fn test_shrink_to_sparse_can_reduce() {
+    let mut set = SparseSet::with_capacity(3, 3);
+    set.insert(0, 1);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 1);
+    set.shrink_to_sparse(1);
+    assert_eq!(set.sparse_capacity(), 1);
+    assert_eq!(set.sparse_len(), 1);
   }
 
   #[test]
-  fn test_try_reserve_succeeds() {
+  fn test_shrink_to_sparse_cannot_reduce() {
+    let mut set = SparseSet::with_capacity(3, 3);
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 3);
+    set.shrink_to_sparse(0);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 3);
+  }
+
+  #[test]
+  fn test_try_reserve_dense_succeeds() {
     let mut set = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
 
-    assert!(set.try_reserve(3).is_ok());
-    let capacity = set.capacity();
+    assert!(set.try_reserve_dense(3).is_ok());
+    let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
     set.insert(0, 1);
     set.insert(1, 2);
 
-    assert!(set.try_reserve(1).is_ok());
-    assert_eq!(set.capacity(), capacity);
+    assert!(set.try_reserve_dense(1).is_ok());
+    assert_eq!(set.dense_capacity(), capacity);
+  }
+
+  #[test]
+  fn test_try_reserve_sparse_succeeds() {
+    let mut set = SparseSet::new();
+    assert_eq!(set.sparse_capacity(), 0);
+
+    assert!(set.try_reserve_sparse(3).is_ok());
+    let capacity = set.sparse_capacity();
+    assert!(capacity >= 2);
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+
+    assert!(set.try_reserve_sparse(1).is_ok());
+    assert_eq!(set.sparse_capacity(), capacity);
+  }
+
+  #[test]
+  fn test_try_reserve_exact_succeeds() {
+    let mut set = SparseSet::new();
+    assert_eq!(set.dense_capacity(), 0);
+
+    assert!(set.try_reserve_exact_dense(3).is_ok());
+    let capacity = set.dense_capacity();
+    assert!(capacity >= 2);
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+
+    assert!(set.try_reserve_exact_dense(1).is_ok());
+    assert_eq!(set.dense_capacity(), capacity);
+  }
+
+  #[test]
+  fn test_try_reserve_exact_sparse_succeeds() {
+    let mut set = SparseSet::new();
+    assert_eq!(set.sparse_capacity(), 0);
+
+    assert!(set.try_reserve_exact_sparse(3).is_ok());
+    let capacity = set.sparse_capacity();
+    assert!(capacity >= 2);
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+
+    assert!(set.try_reserve_exact_sparse(1).is_ok());
+    assert_eq!(set.sparse_capacity(), capacity);
   }
 
   #[test]
@@ -1692,17 +1698,6 @@ pub mod test {
     set.insert(1, 2);
     set.insert(2, 3);
     assert!(set.values().eq(&[1, 2, 3]));
-  }
-
-  #[test]
-  fn test_values_zst() {
-    let mut set = SparseSet::new();
-    assert!(set.values().eq(&[]));
-
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert!(set.values().eq(&[Zst, Zst, Zst]));
   }
 
   #[test]
@@ -1722,17 +1717,6 @@ pub mod test {
   }
 
   #[test]
-  fn test_values_mut_zst() {
-    let mut set = SparseSet::new();
-    assert!(set.values_mut().eq(&[]));
-
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert!(set.values_mut().eq(&[Zst, Zst, Zst]));
-  }
-
-  #[test]
   fn test_as_ref() {
     let mut set = SparseSet::new();
     set.insert(0, 1);
@@ -1747,51 +1731,37 @@ pub mod test {
   }
 
   #[test]
-  fn test_as_ref_zst() {
+  fn test_as_ref_mut() {
     let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
 
-    let reference: &SparseSet<_, _> = set.as_ref();
-    assert_eq!(reference.get(0), Some(&Zst));
+    let reference: &mut SparseSet<_, _> = set.as_mut();
+    assert_eq!(reference.get(0), Some(&1));
 
-    let reference: &[Zst] = set.as_ref();
-    assert_eq!(reference.get(0), Some(&Zst));
+    let reference: &mut [usize] = set.as_mut();
+    assert_eq!(reference.get(0), Some(&1));
   }
 
   #[test]
   fn test_clone() {
-    let mut set = SparseSet::with_capacity(3);
+    let mut set = SparseSet::new();
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
 
     let cloned_set = set.clone();
-    assert!(set.values().eq(cloned_set.values()));
-    assert_eq!(set.len(), cloned_set.len());
-  }
-
-  #[test]
-  fn test_clone_zst() {
-    let mut set = SparseSet::with_capacity(3);
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-
-    let cloned_set = set.clone();
-    assert!(set.values().eq(cloned_set.values()));
-    assert_eq!(set.len(), cloned_set.len());
+    assert_eq!(set, cloned_set);
   }
 
   #[test]
   fn test_clone_zero_capacity() {
     let set: SparseSet<usize, usize> = SparseSet::new();
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
 
     let cloned_set = set.clone();
-    assert!(set.values().eq(cloned_set.values()));
-    assert_eq!(set.len(), cloned_set.len());
+    assert_eq!(set, cloned_set);
   }
 
   #[test]
@@ -1823,28 +1793,27 @@ pub mod test {
   }
 
   #[test]
-  fn test_debug_zst() {
-    let mut set = SparseSet::new();
-    assert_eq!(format!("{:?}", set), "[]");
-
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert_eq!(format!("{:?}", set), "[Zst, Zst, Zst]");
-  }
-
-  #[test]
   fn test_default() {
     let set: SparseSet<usize, usize> = SparseSet::default();
     assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
+    assert_eq!(set.dense_capacity(), 0);
+    assert_eq!(set.sparse_capacity(), 0);
   }
 
   #[test]
-  fn test_default_zst() {
-    let set: SparseSet<usize, Zst> = SparseSet::default();
-    assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
+  fn test_deref() {
+    let mut set: SparseSet<usize, usize> = SparseSet::default();
+    set.insert(0, 1);
+
+    assert_eq!(set.deref(), &[1]);
+  }
+
+  #[test]
+  fn test_deref_mut() {
+    let mut set: SparseSet<usize, usize> = SparseSet::default();
+    set.insert(0, 1);
+
+    assert_eq!(set.deref_mut(), &mut [1]);
   }
 
   #[test]
@@ -1870,22 +1839,46 @@ pub mod test {
   }
 
   #[test]
-  fn test_extend_zst() {
-    let mut set = SparseSet::new();
-    set.extend([(0, Zst), (1, Zst), (2, Zst)]);
-    assert!(set.values().eq(&[Zst, Zst, Zst]));
-  }
-
-  #[test]
   fn test_from_iterator() {
     let set = SparseSet::from_iter([(0, 1), (1, 2), (2, 3)]);
     assert!(set.values().eq(&[1, 2, 3]));
   }
 
   #[test]
-  fn test_from_iterator_zst() {
-    let set = SparseSet::from_iter([(0, Zst), (1, Zst), (2, Zst)]);
-    assert!(set.values().eq(&[Zst, Zst, Zst]));
+  fn test_hash() {
+    fn hash<T: Hash>(value: &T) -> u64 {
+      let mut hasher = DefaultHasher::new();
+      value.hash(&mut hasher);
+      hasher.finish()
+    }
+
+    let mut set_1 = SparseSet::new();
+    let mut set_2 = SparseSet::new();
+
+    assert_eq!(hash(&set_1), hash(&set_2));
+
+    set_1.insert(0, 1);
+
+    assert_ne!(set_1, set_2);
+
+    set_2.insert(0, 2);
+
+    assert_ne!(set_1, set_2);
+
+    let _ = set_2.remove(0);
+    set_2.insert(1, 2);
+
+    assert_ne!(set_1, set_2);
+
+    set_1.insert(1, 2);
+    set_2.insert(0, 1);
+
+    assert_eq!(hash(&set_1), hash(&set_2));
+
+    let _ = set_1.remove(0);
+    let _ = set_2.remove(0);
+
+    assert_eq!(hash(&set_1), hash(&set_2));
   }
 
   #[test]
@@ -1897,17 +1890,6 @@ pub mod test {
 
     assert_eq!(set[0], 1);
     assert_eq!(set[2], 3);
-  }
-
-  #[test]
-  fn test_index_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-
-    assert_eq!(set[0], Zst);
-    assert_eq!(set[2], Zst);
   }
 
   #[should_panic]
@@ -1935,20 +1917,6 @@ pub mod test {
     assert_eq!(set[2], 10);
   }
 
-  #[test]
-  fn test_index_mut_zst() {
-    let mut set = SparseSet::new();
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-
-    let value = &mut set[2];
-    assert_eq!(value, &mut Zst);
-    *value = Zst;
-
-    assert_eq!(set[2], Zst);
-  }
-
   #[should_panic]
   #[test]
   fn test_index_mut_panics() {
@@ -1963,6 +1931,15 @@ pub mod test {
   #[test]
   fn test_into_iterator() {
     let mut set = SparseSet::new();
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert!(set.into_iter().eq([1, 2, 3]));
+  }
+
+  #[test]
+  fn test_into_iterator_ref() {
+    let mut set = SparseSet::new();
     assert!((&set).into_iter().eq(&[]));
 
     set.insert(0, 1);
@@ -1972,20 +1949,9 @@ pub mod test {
   }
 
   #[test]
-  fn test_into_iterator_zst() {
-    let mut set = SparseSet::new();
-    assert!((&set).into_iter().eq(&[]));
-
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert!((&set).into_iter().eq(&[Zst, Zst, Zst]));
-  }
-
-  #[test]
   fn test_into_iterator_mut() {
     let mut set = SparseSet::new();
-    assert!(set.into_iter().eq(&[]));
+    assert!((&mut set).into_iter().eq(&[]));
 
     set.insert(0, 1);
     set.insert(1, 2);
@@ -1999,13 +1965,33 @@ pub mod test {
   }
 
   #[test]
-  fn test_into_iterator_mut_zst() {
-    let mut set = SparseSet::new();
-    assert!((&mut set).into_iter().eq(&[]));
+  fn test_eq() {
+    let mut set_1 = SparseSet::new();
+    let mut set_2 = SparseSet::new();
 
-    set.insert(0, Zst);
-    set.insert(1, Zst);
-    set.insert(2, Zst);
-    assert!((&mut set).into_iter().eq(&[Zst, Zst, Zst]));
+    assert_eq!(set_1, set_2);
+
+    set_1.insert(0, 1);
+
+    assert_ne!(set_1, set_2);
+
+    set_2.insert(0, 2);
+
+    assert_ne!(set_1, set_2);
+
+    let _ = set_2.remove(0);
+    set_2.insert(1, 2);
+
+    assert_ne!(set_1, set_2);
+
+    set_1.insert(1, 2);
+    set_2.insert(0, 1);
+
+    assert_eq!(set_1, set_2);
+
+    let _ = set_1.remove(0);
+    let _ = set_2.remove(0);
+
+    assert_eq!(set_1, set_2);
   }
 }

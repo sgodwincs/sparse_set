@@ -4,11 +4,9 @@
 
 #![cfg_attr(coverage_nightly, feature(no_coverage))]
 #![feature(allocator_api)]
-#![feature(dropck_eyepatch)]
+#![feature(bound_map)]
 #![feature(extend_one)]
-#![feature(slice_ptr_get)]
 #![feature(type_alias_impl_trait)]
-#![feature(try_reserve_kind)]
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
