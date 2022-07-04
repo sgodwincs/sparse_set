@@ -1216,7 +1216,7 @@ pub trait SparseSetIndex: Clone + Into<usize> {}
 impl SparseSetIndex for usize {}
 
 #[cfg(test)]
-pub mod test {
+mod test {
   use std::{cell::RefCell, collections::hash_map::DefaultHasher, rc::Rc};
 
   use coverage_helper::test;

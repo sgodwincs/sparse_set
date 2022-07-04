@@ -21,3 +21,15 @@ impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for Sp
     Ok(set)
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn test_arbitrary() {
+    let bytes = (0..255).into_iter().collect::<Vec<u8>>().repeat(100);
+    let mut u = Unstructured::new(&*bytes);
+    let _: SparseSet<usize, usize> = SparseSet::arbitrary(&mut u).unwrap();
+  }
+}
