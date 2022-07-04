@@ -1,5 +1,9 @@
 # Sparse Set
 
+[![Crates.io](https://img.shields.io/crates/v/sparse_set.svg)](https://crates.io/crates/sparse_set)
+[![Docs.rs](https://docs.rs/sparse_set/badge.svg)](https://docs.rs/sparse_set)
+[![CI](https://github.com/sgodwincs/sparse_set/workflows/CI/badge.svg)](https://github.com/{{gh-username}}/sparse_set/actions)
+
 This crate is a sparse set implementation.
 
 This won't go into detail on what it is, but instead I'll recommend reading https://research.swtch.com/sparse for a nice,
