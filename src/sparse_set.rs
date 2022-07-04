@@ -203,12 +203,16 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   }
 
   /// Extracts a slice containing the entire dense buffer.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
   #[must_use]
   pub fn as_dense_slice(&self) -> &[T] {
     &self.dense
   }
 
   /// Extracts a mutable slice of the entire dense buffer.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
   #[must_use]
   pub fn as_dense_mut_slice(&mut self) -> &mut [T] {
     &mut self.dense
@@ -241,6 +245,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   }
 
   /// Returns a slice over the sparse set's indices.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// # Examples
   ///
@@ -412,6 +418,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   }
 
   /// Returns an iterator over the sparse set's indices.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
   ///
@@ -977,6 +985,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
 
   /// Returns an iterator over the sparse set's values.
   ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
   /// Consuming the iterator is an *O*(*n*) operation.
   ///
   /// # Examples
@@ -1001,6 +1011,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   }
 
   /// Returns an iterator that allows modifying each value.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// # Examples
   ///
