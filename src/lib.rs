@@ -4,7 +4,6 @@
 
 #![cfg_attr(coverage_nightly, feature(no_coverage))]
 #![feature(allocator_api)]
-#![feature(extend_one)]
 #![feature(type_alias_impl_trait)]
 
 #[cfg(feature = "arbitrary")]

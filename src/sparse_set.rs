@@ -1098,17 +1098,6 @@ impl<'a, I: SparseSetIndex, T: Copy + 'a, SA: Allocator + 'a, DA: Allocator + 'a
       self.insert(index, value);
     }
   }
-
-  #[inline]
-  fn extend_one(&mut self, (index, &value): (I, &'a T)) {
-    self.insert(index, value);
-  }
-
-  #[inline]
-  fn extend_reserve(&mut self, additional: usize) {
-    self.reserve_dense(additional);
-    self.reserve_sparse(additional);
-  }
 }
 
 #[cfg(not(no_global_oom_handling))]
@@ -1119,17 +1108,6 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Extend<(I, T)>
     for (index, value) in iter {
       self.insert(index, value);
     }
-  }
-
-  #[inline]
-  fn extend_one(&mut self, (index, value): (I, T)) {
-    self.insert(index, value);
-  }
-
-  #[inline]
-  fn extend_reserve(&mut self, additional: usize) {
-    self.reserve_dense(additional);
-    self.reserve_sparse(additional);
   }
 }
 
