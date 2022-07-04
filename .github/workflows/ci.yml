@@ -43,6 +43,11 @@ jobs:
         run: cargo install cargo-mutants
       - name: Run mutant tests
         run: cargo mutants -- --all-features
+      - name: Archive results
+        uses: actions/upload-artifact@v3
+        with:
+          name: mutation-report
+          path: mutants.out
   all-doc-tests:
     runs-on: ubuntu-latest
     steps:
