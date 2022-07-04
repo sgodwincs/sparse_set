@@ -11,7 +11,7 @@ pub fn insert_with_capacity_benchmark(c: &mut Criterion) {
 
   group.bench_function("SparseSet", |b| {
     b.iter(|| {
-      let mut set = SparseSet::with_capacity(100000);
+      let mut set = SparseSet::with_capacity(100000, 100000);
 
       for i in 0..100000usize {
         set.insert(i, i);
@@ -70,7 +70,7 @@ pub fn iterate_dense_benchmark(c: &mut Criterion) {
   let mut group = c.benchmark_group("iterate dense");
 
   group.bench_function("SparseSet", |b| {
-    let mut set = SparseSet::new();
+    let mut set = SparseSet::with_capacity(100000, 100000);
     set.extend((0..100000usize).into_iter().enumerate());
     let mut sum = 0;
 
@@ -118,7 +118,7 @@ pub fn iterate_sparse_benchmark(c: &mut Criterion) {
     .map(|(i, _)| (i * 5, i));
 
   group.bench_function("SparseSet", |b| {
-    let mut set = SparseSet::new();
+    let mut set = SparseSet::with_capacity(100000, 100000);
     set.extend(iter.clone());
     let mut sum = 0;
 
@@ -162,7 +162,7 @@ pub fn remove_benchmark(c: &mut Criterion) {
   let mut group = c.benchmark_group("remove");
 
   group.bench_function("SparseSet", |b| {
-    let mut set = SparseSet::new();
+    let mut set = SparseSet::with_capacity(100000, 100000);
     set.extend((0..100000usize).into_iter().enumerate());
 
     b.iter(|| {
