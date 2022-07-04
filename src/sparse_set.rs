@@ -1195,7 +1195,7 @@ impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
             return false;
           }
         }
-        (None, None) | (Some(None), Some(None)) => {}
+        (Some(None), Some(None)) => {}
         _ => {
           return false;
         }
@@ -1582,6 +1582,16 @@ pub mod test {
   }
 
   #[test]
+  fn test_shrink_to_fit_max_index_zero() {
+    let mut set: SparseSet<usize, usize> = SparseSet::with_capacity(3, 3);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 0);
+    set.shrink_to_fit_sparse();
+    assert_eq!(set.sparse_capacity(), 0);
+    assert_eq!(set.sparse_len(), 0);
+  }
+
+  #[test]
   fn test_shrink_to_dense_can_reduce() {
     let mut set = SparseSet::with_capacity(3, 3);
     set.insert(0, 1);
@@ -1623,6 +1633,16 @@ pub mod test {
     set.shrink_to_sparse(0);
     assert_eq!(set.sparse_capacity(), 3);
     assert_eq!(set.sparse_len(), 3);
+  }
+
+  #[test]
+  fn test_shrink_to_max_index_zero() {
+    let mut set: SparseSet<usize, usize> = SparseSet::with_capacity(3, 3);
+    assert_eq!(set.sparse_capacity(), 3);
+    assert_eq!(set.sparse_len(), 0);
+    set.shrink_to_sparse(0);
+    assert_eq!(set.sparse_capacity(), 0);
+    assert_eq!(set.sparse_len(), 0);
   }
 
   #[test]
@@ -1835,6 +1855,19 @@ pub mod test {
   fn test_extend() {
     let mut set = SparseSet::new();
     set.extend([(0, 1), (1, 2), (2, 3)]);
+    assert!(set.values().eq(&[1, 2, 3]));
+  }
+
+  #[test]
+  fn test_extend_ref() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    set.extend([(0, &1), (1, &2), (2, &3)]);
+    assert!(set.values().eq(&[1, 2, 3]));
+  }
+
+  #[test]
+  fn test_from_array() {
+    let set = SparseSet::from([(0, 1), (1, 2), (2, 3)]);
     assert!(set.values().eq(&[1, 2, 3]));
   }
 
