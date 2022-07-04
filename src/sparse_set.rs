@@ -233,9 +233,42 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
   /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
   /// pointers to it invalid.
+  ///
+  /// Swapping elements in the mutable slice changes which indices point to which values.
   #[must_use]
   pub fn as_dense_mut_ptr(&mut self) -> *mut T {
     self.dense.as_mut_ptr()
+  }
+
+  /// Returns a slice over the sparse set's indices.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// assert_eq!(set.as_indices_slice(), &[0, 1, 2]);
+  /// ```
+  pub fn as_indices_slice(&self) -> &[I] {
+    &*self.indices
+  }
+
+  /// Returns a raw pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
+  /// didn't allocate.
+  ///
+  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
+  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
+  /// pointers to it invalid.
+  ///
+  /// The caller must also ensure that the memory the pointer (non-transitively) points to is never written to (except
+  /// inside an `UnsafeCell`) using this pointer or any pointer derived from it.
+  pub fn as_indices_ptr(&self) -> *const I {
+    self.indices.as_ptr()
   }
 
   /// Returns the number of elements the dense buffer can hold without reallocating.
@@ -1311,6 +1344,19 @@ mod test {
       set.as_dense_mut_ptr(),
       set.as_dense_mut_slice().as_mut_ptr()
     );
+  }
+
+  #[test]
+  fn test_as_indices_slice() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    set.insert(0, 1);
+    assert_eq!(set.as_indices_slice(), &[0]);
+  }
+
+  #[test]
+  fn test_as_indices_ptr() {
+    let set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
+    assert_eq!(set.as_indices_ptr(), set.as_indices_slice().as_ptr());
   }
 
   #[test]
