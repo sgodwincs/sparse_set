@@ -1915,15 +1915,34 @@ mod test {
 
   #[test]
   fn test_hash() {
-    fn hash<T: Hash>(value: &T) -> u64 {
-      let mut hasher = DefaultHasher::new();
+    #[derive(Default)]
+    struct TestHasher {
+      writes_made: usize,
+      delegate: DefaultHasher,
+    }
+
+    impl Hasher for TestHasher {
+      fn finish(&self) -> u64 {
+        self.delegate.finish()
+      }
+
+      fn write(&mut self, bytes: &[u8]) {
+        self.delegate.write(bytes);
+        self.writes_made += 1;
+      }
+    }
+
+    fn hash(value: &SparseSet<usize, usize>) -> u64 {
+      let mut hasher = TestHasher::default();
       value.hash(&mut hasher);
+      assert!(hasher.writes_made >= value.len());
       hasher.finish()
     }
 
     let mut set_1 = SparseSet::new();
     let mut set_2 = SparseSet::new();
 
+    assert_eq!(set_1, set_2);
     assert_eq!(hash(&set_1), hash(&set_2));
 
     set_1.insert(0, 1);
@@ -1942,11 +1961,13 @@ mod test {
     set_1.insert(1, 2);
     set_2.insert(0, 1);
 
+    assert_eq!(set_1, set_2);
     assert_eq!(hash(&set_1), hash(&set_2));
 
     let _ = set_1.remove(0);
     let _ = set_2.remove(0);
 
+    assert_eq!(set_1, set_2);
     assert_eq!(hash(&set_1), hash(&set_2));
   }
 
