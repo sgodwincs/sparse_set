@@ -30,6 +30,19 @@ jobs:
           override: true
       - name: Test with Miri
         run: cargo miri test
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - uses: Swatinem/rust-cache@v1
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants
+      - name: Run mutant tests
+        run: cargo mutants -- --all-features
   all-doc-tests:
     runs-on: ubuntu-latest
     steps:
