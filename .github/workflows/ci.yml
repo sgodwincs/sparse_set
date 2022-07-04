@@ -64,7 +64,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          components: rustfmt, clippy
+          components: llvm-tools-preview
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Install cargo-llvm-cov
