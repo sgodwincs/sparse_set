@@ -6,7 +6,6 @@ license = "MIT"
 edition = "2021"
 repository = "https://github.com/sgodwincs/sparse_set"
 description = "Implementation of the sparse set data structure"
-publish = false
 readme = "README.md"
 
 [dependencies]
