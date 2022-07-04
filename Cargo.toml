@@ -2,6 +2,7 @@
 name = "sparse_set"
 version = "0.1.0"
 authors = ["Scott Godwin <sgodwincs@gmail.com>"]
+license = "MIT"
 edition = "2021"
 description = "Implementation of the sparse set data structure"
 publish = false
