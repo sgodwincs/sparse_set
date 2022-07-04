@@ -7,3 +7,5 @@ succinct description.
 
 One thing to note is that a separate buffer is used to store the actual indices. This makes a tradeoff between
 value insertion/removal and iteration speed.
+
+Nightly is required and I have no motivation to change it as I use this crate for other projects on nightly.
