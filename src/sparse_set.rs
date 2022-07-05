@@ -15,6 +15,8 @@ use std::{
   ops::{Deref, DerefMut, Index, IndexMut},
 };
 
+use crate::{SparseSetIndex, SparseVec};
+
 /// A sparsely populated set, written `SparseSet<I, T>`, where `I` is the index type and `T` is the value type.
 ///
 /// For operation complexity notes, *n* is the number of values in the sparse set and *m* is the value of the largest
@@ -25,7 +27,7 @@ pub struct SparseSet<I, T, SA: Allocator = Global, DA: Allocator = Global> {
   dense: Vec<T, DA>,
 
   /// The sparse buffer, i.e., the buffer where each index may correspond to an index into `dense`.
-  sparse: Vec<Option<NonZeroUsize>, SA>,
+  sparse: SparseVec<I, NonZeroUsize, SA>,
 
   /// All the existing indices in `sparse`.
   ///
@@ -102,7 +104,7 @@ impl<I, T> SparseSet<I, T> {
   }
 }
 
-impl<I, T, DA: Allocator, SA: Allocator> SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// Constructs a new, empty `SparseSet<I, T, DA, SA>`.
   ///
   /// The sparse set will not allocate until elements are pushed onto it.
@@ -123,7 +125,7 @@ impl<I, T, DA: Allocator, SA: Allocator> SparseSet<I, T, SA, DA> {
   pub fn new_in(sparse_alloc: SA, dense_alloc: DA, indices_alloc: DA) -> Self {
     Self {
       dense: Vec::new_in(dense_alloc),
-      sparse: Vec::new_in(sparse_alloc),
+      sparse: SparseVec::new_in(sparse_alloc),
       indices: Vec::new_in(indices_alloc),
     }
   }
@@ -161,12 +163,13 @@ impl<I, T, DA: Allocator, SA: Allocator> SparseSet<I, T, SA, DA> {
   /// for i in 0..10 {
   ///   set.insert(i, i);
   /// }
+  ///
   /// assert_eq!(set.dense_len(), 10);
   /// assert_eq!(set.sparse_len(), 10);
   /// assert_eq!(set.dense_capacity(), 10);
   /// assert_eq!(set.sparse_capacity(), 10);
   ///
-  /// // ...but this will make the sparse set reallocate
+  /// // ...but this will make the sparse set reallocate.
   /// set.insert(10, 10);
   /// assert_eq!(set.dense_len(), 11);
   /// assert!(set.dense_capacity() >= 11);
@@ -183,7 +186,7 @@ impl<I, T, DA: Allocator, SA: Allocator> SparseSet<I, T, SA, DA> {
   ) -> Self {
     Self {
       dense: Vec::with_capacity_in(dense_capacity, dense_alloc),
-      sparse: Vec::with_capacity_in(sparse_capacity, sparse_alloc),
+      sparse: SparseVec::with_capacity_in(sparse_capacity, sparse_alloc),
       indices: Vec::with_capacity_in(dense_capacity, indices_alloc),
     }
   }
@@ -311,7 +314,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// Note that this method has no effect on the allocated capacity of the sparse set.
   ///
-  /// This operation is *O*(*n*).
+  /// This operation is *O*(*m*).
   ///
   /// # Examples
   ///
@@ -380,9 +383,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   pub fn get(&self, index: I) -> Option<&T> {
     self
       .sparse
-      .get(index.into())
-      .cloned()
-      .flatten()
+      .get(index)
       .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
   }
 
@@ -411,9 +412,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
     self
       .sparse
-      .get(index.into())
-      .cloned()
-      .flatten()
+      .get(index)
       .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
   }
 
@@ -448,7 +447,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// If a value already existed at `index`, it will be overwritten.
   ///
-  /// If `index` is greater than `sparse_capacity` or , then an allocation will take place.
+  /// If `index` is greater than `sparse_capacity`, then an allocation will take place.
   ///
   /// This operation is amortized *O*(*1*).
   ///
@@ -470,20 +469,15 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert(&mut self, index: I, value: T) {
-    let index_raw = index.clone().into();
-
-    match self.sparse.get(index_raw) {
-      Some(Some(dense_index)) => {
+    match self.sparse.get(index.clone()) {
+      Some(dense_index) => {
         let dense_index = dense_index.get() - 1;
         *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
       }
-      opt => {
-        if opt.is_none() {
-          self.sparse.resize_with(index_raw + 1, || None);
-        }
-
-        *unsafe { self.sparse.get_unchecked_mut(index_raw) } =
-          Some(unsafe { NonZeroUsize::new_unchecked(self.dense_len() + 1) });
+      None => {
+        self.sparse.insert(index.clone(), unsafe {
+          NonZeroUsize::new_unchecked(self.dense_len() + 1)
+        });
         self.dense.push(value);
         self.indices.push(index);
       }
@@ -564,27 +558,21 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// assert!(set.values().eq(&[1, 3]));
   /// ```
   pub fn remove(&mut self, index: I) -> Option<T> {
-    let index = index.into();
+    match self.sparse.remove(index) {
+      Some(dense_index) => {
+        let dense_index = dense_index.get() - 1;
+        let value = Some(self.dense.swap_remove(dense_index));
+        let _ = self.indices.swap_remove(dense_index);
 
-    match self.sparse.get_mut(index) {
-      Some(opt) => {
-        if let Some(dense_index) = opt.take() {
-          let dense_index = dense_index.get() - 1;
-          let value = Some(self.dense.swap_remove(dense_index));
-          let _ = self.indices.swap_remove(dense_index);
-
-          if dense_index != self.dense.len() {
-            let swapped_index: usize = unsafe { self.indices.get_unchecked(dense_index) }
-              .clone()
-              .into();
-            *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
-              Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
-          }
-
-          return value;
+        if dense_index != self.dense.len() {
+          let swapped_index: usize = unsafe { self.indices.get_unchecked(dense_index) }
+            .clone()
+            .into();
+          *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
+            Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
         }
 
-        None
+        value
       }
       _ => None,
     }
@@ -650,7 +638,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
   /// upon to be precisely minimal. Prefer [`reserve_dense`] if future insertions are expected.
   ///
-  /// [`reserve`]: SparseSet::reserve
+  /// [`reserve_dense`]: SparseSet::reserve_dense
   ///
   /// # Panics
   ///
@@ -669,6 +657,36 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   #[cfg(not(no_global_oom_handling))]
   pub fn reserve_exact_dense(&mut self, additional: usize) {
     self.dense.reserve_exact(additional);
+  }
+
+  /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the given
+  /// `SparseSet<I, T>`'s sparse buffer.
+  ///
+  /// After calling `reserve_exact`, the sparse capacity will be greater than or equal to
+  /// `self.sparse_len() + additional`. Does nothing if the capacity is already sufficient.
+  ///
+  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
+  /// upon to be precisely minimal. Prefer [`reserve_sparse`] if future insertions are expected.
+  ///
+  /// [`reserve_sparse`]: SparseSet::reserve_sparse
+  ///
+  /// # Panics
+  ///
+  /// Panics if the new capacity exceeds `isize::MAX` bytes.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.reserve_exact_sparse(10);
+  /// assert!(set.sparse_capacity() >= 11);
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn reserve_exact_sparse(&mut self, additional: usize) {
+    self.sparse.reserve_exact(additional);
   }
 
   /// Tries to reserve capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s
@@ -826,39 +844,9 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
     self.sparse.try_reserve_exact(additional)
   }
 
-  /// Reserves the minimum capacity for exactly `additional` more elements to be inserted in the given
-  /// `SparseSet<I, T>`'s sparse buffer.
-  ///
-  /// After calling `reserve_exact`, the sparse capacity will be greater than or equal to
-  /// `self.sparse_len() + additional`. Does nothing if the capacity is already sufficient.
-  ///
-  /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
-  /// upon to be precisely minimal. Prefer [`reserve_sparse`] if future insertions are expected.
-  ///
-  /// [`reserve`]: SparseSet::reserve
-  ///
-  /// # Panics
-  ///
-  /// Panics if the new capacity exceeds `isize::MAX` bytes.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  /// set.insert(0, 1);
-  /// set.reserve_exact_sparse(10);
-  /// assert!(set.sparse_capacity() >= 11);
-  /// ```
-  #[cfg(not(no_global_oom_handling))]
-  pub fn reserve_exact_sparse(&mut self, additional: usize) {
-    self.sparse.reserve_exact(additional);
-  }
-
   /// Shrinks the dense capacity of the sparse set as much as possible.
   ///
-  /// It will drop down as close as possible to the length but the allocator may still inform the sparse vector that
+  /// It will drop down as close as possible to the length but the allocator may still inform the sparse set that
   /// there is space for a few more elements.
   ///
   /// This operation is *O*(*n*).
@@ -886,7 +874,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// Unlike [`shrink_to_fit_dense`], this can also reduce `sparse_len` as any empty indices after the maximum index are
   /// removed.
   ///
-  /// It will drop down as close as possible to the length but the allocator may still inform the sparse vector that
+  /// It will drop down as close as possible to the length but the allocator may still inform the sparse set that
   /// there is space for a few more elements.
   ///
   /// This operation is *O*(*m*).
@@ -906,7 +894,6 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_fit_sparse(&mut self) {
-    self.sparse.truncate(self.max_index());
     self.sparse.shrink_to_fit();
   }
 
@@ -960,27 +947,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_sparse(&mut self, min_capacity: usize) {
-    let sparse_len = self.max_index();
-
-    if min_capacity < sparse_len {
-      self.sparse.truncate(sparse_len);
-    }
-
-    self.sparse.shrink_to(min_capacity);
-  }
-
-  /// Returns the largest index in the sparse set, or None if it is empty.
-  ///
-  /// This operation is *O*(*m*).
-  #[must_use]
-  fn max_index(&self) -> usize {
-    for (index, value) in self.sparse.iter().rev().enumerate() {
-      if value.is_some() {
-        return self.sparse.len() - index;
-      }
-    }
-
-    0
+    self.sparse.shrink_to(min_capacity)
   }
 
   /// Returns an iterator over the sparse set's values.
@@ -1143,7 +1110,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
   }
 }
 
-impl<I, T: Hash, SA: Allocator, DA: Allocator> Hash for SparseSet<I, T, SA, DA> {
+impl<I: SparseSetIndex, T: Hash, SA: Allocator, DA: Allocator> Hash for SparseSet<I, T, SA, DA> {
   fn hash<H: Hasher>(&self, state: &mut H) {
     for index in self.sparse.iter() {
       index.is_some().hash(state);
@@ -1210,15 +1177,16 @@ impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
     }
 
     for index in self.indices.iter() {
-      let index = index.clone().into();
-
-      match (self.sparse.get(index), other.sparse.get(index)) {
-        (Some(Some(index)), Some(Some(other_index))) => {
+      match (
+        self.sparse.get(index.clone()),
+        other.sparse.get(index.clone()),
+      ) {
+        (Some(index), Some(other_index)) => {
           if self.dense.get(index.get() - 1) != other.dense.get(other_index.get() - 1) {
             return false;
           }
         }
-        (Some(None), Some(None)) => {}
+        (None, None) => {}
         _ => {
           return false;
         }
@@ -1230,13 +1198,6 @@ impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
 }
 
 impl<I: SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
-
-/// A type with this trait indicates it can be used as an index into a `SparseSet`.
-///
-/// Two indices must convert to the same `usize` if and only if they are equal.
-pub trait SparseSetIndex: Clone + Into<usize> {}
-
-impl SparseSetIndex for usize {}
 
 #[cfg(test)]
 mod test {
@@ -1780,10 +1741,10 @@ mod test {
     set.insert(2, 3);
 
     let reference: &SparseSet<_, _> = set.as_ref();
-    assert_eq!(reference.get(0), Some(&1));
+    assert_eq!(reference.first(), Some(&1));
 
     let reference: &[usize] = set.as_ref();
-    assert_eq!(reference.get(0), Some(&1));
+    assert_eq!(reference.first(), Some(&1));
   }
 
   #[test]
@@ -1794,10 +1755,10 @@ mod test {
     set.insert(2, 3);
 
     let reference: &mut SparseSet<_, _> = set.as_mut();
-    assert_eq!(reference.get(0), Some(&1));
+    assert_eq!(reference.first(), Some(&1));
 
     let reference: &mut [usize] = set.as_mut();
-    assert_eq!(reference.get(0), Some(&1));
+    assert_eq!(reference.first(), Some(&1));
   }
 
   #[test]
@@ -2051,7 +2012,7 @@ mod test {
     let value = set.values_mut().next().unwrap();
     *value = 100;
 
-    assert_eq!((&mut set).get(0), Some(&100));
+    assert_eq!(set.first(), Some(&100));
   }
 
   #[test]
@@ -2075,6 +2036,7 @@ mod test {
     assert_ne!(set_1, set_2);
 
     set_1.insert(1, 2);
+
     set_2.insert(0, 1);
 
     assert_eq!(set_1, set_2);

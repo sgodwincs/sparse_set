@@ -9,6 +9,8 @@
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 
+pub mod index;
 pub mod sparse_set;
+pub mod sparse_vec;
 
-pub use crate::sparse_set::{SparseSet, SparseSetIndex};
+pub use crate::{index::SparseSetIndex, sparse_set::SparseSet, sparse_vec::SparseVec};
