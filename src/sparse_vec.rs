@@ -627,7 +627,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::SparseSet;
+  /// # use sparse_set::SparseVec;
   /// #
   /// let mut vec = SparseVec::new();
   ///
@@ -636,9 +636,9 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// vec.insert(2, 2);
   /// vec.insert(3, 3);
   ///
-  /// assert!(vec.values().eq(&[Some(1), Some(4), Some(2), Some(3)]));
+  /// assert!(vec.iter().eq(&[Some(1), Some(4), Some(2), Some(3)]));
   /// vec.insert(5, 5);
-  /// assert!(vec.values().eq(&[Some(1), Some(4), Some(2), Some(3), None, Some(5)]));
+  /// assert!(vec.iter().eq(&[Some(1), Some(4), Some(2), Some(3), None, Some(5)]));
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert(&mut self, index: I, value: T) {

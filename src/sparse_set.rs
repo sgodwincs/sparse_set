@@ -994,7 +994,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
         let _ = self.indices.swap_remove(dense_index);
 
         if dense_index != self.dense.len() {
-          let swapped_index = unsafe { self.indices.get_unchecked(dense_index) }.into();
+          let swapped_index: usize = (*unsafe { self.indices.get_unchecked(dense_index) }).into();
           *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
             Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
         }
@@ -1178,7 +1178,7 @@ impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> 
     }
 
     for index in self.indices.iter() {
-      match (self.sparse.get(index), other.sparse.get(index)) {
+      match (self.sparse.get(*index), other.sparse.get(*index)) {
         (Some(index), Some(other_index)) => {
           let index = index.get() - 1;
           let other_index = other_index.get() - 1;
