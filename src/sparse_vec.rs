@@ -159,7 +159,7 @@ impl<I, T, A: Allocator> SparseVec<I, T, A> {
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
+impl<I, T, A: Allocator> SparseVec<I, T, A> {
   /// Returns a reference to the underlying allocator.
   #[must_use]
   pub fn allocator(&self) -> &A {
@@ -243,121 +243,6 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
     self.values.clear();
   }
 
-  /// Returns `true` if the sparse vec contains an element at the given index.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut vec = SparseSet::new();
-  ///
-  /// vec.insert(0, 1);
-  /// vec.insert(1, 2);
-  /// vec.insert(2, 3);
-  ///
-  /// assert!(vec.contains(0));
-  /// assert!(!vec.contains(100));
-  /// ```
-  #[must_use]
-  pub fn contains(&self, index: I) -> bool {
-    self.get(index).is_some()
-  }
-
-  /// Returns a reference to an element pointed to by the index, if it exists.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseVec;
-  /// #
-  /// let mut vec = SparseVec::new();
-  ///
-  /// vec.insert(0, 1);
-  /// vec.insert(1, 2);
-  /// vec.insert(2, 3);
-  /// assert_eq!(Some(&2), vec.get(1));
-  /// assert_eq!(None, vec.get(3));
-  ///
-  /// vec.remove(1);
-  /// assert_eq!(None, vec.get(1));
-  /// ```
-  #[must_use]
-  pub fn get(&self, index: I) -> Option<&T> {
-    self
-      .values
-      .get(index.into())
-      .and_then(|inner| inner.as_ref())
-  }
-
-  /// Returns a mutable reference to an element pointed to by the index, if it exists.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseVec;
-  /// #
-  /// let mut vec = SparseVec::new();
-  ///
-  /// vec.insert(0, 1);
-  /// vec.insert(1, 2);
-  /// vec.insert(2, 3);
-  ///
-  /// if let Some(elem) = vec.get_mut(1) {
-  ///   *elem = 42;
-  /// }
-  ///
-  /// assert!(vec.iter().eq(&[Some(1), Some(42), Some(3)]));
-  /// ```
-  #[must_use]
-  pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
-    self
-      .values
-      .get_mut(index.into())
-      .and_then(|inner| inner.as_mut())
-  }
-
-  /// Inserts an element at position `index` within the sparse vec.
-  ///
-  /// If a value already existed at `index`, it will be overwritten.
-  ///
-  /// If `index` is greater than `capacity`, then an allocation will take place.
-  ///
-  /// This operation is amortized *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut vec = SparseSet::new();
-  ///
-  /// vec.insert(0, 1);
-  /// vec.insert(1, 4);
-  /// vec.insert(2, 2);
-  /// vec.insert(3, 3);
-  ///
-  /// assert!(vec.values().eq(&[1, 4, 2, 3]));
-  /// vec.insert(20, 5);
-  /// assert!(vec.values().eq(&[1, 4, 2, 3, 5]));
-  /// ```
-  #[cfg(not(no_global_oom_handling))]
-  pub fn insert(&mut self, index: I, value: T) {
-    let index = index.into();
-
-    if index >= self.len() {
-      self.values.resize_with(index + 1, || None);
-    }
-
-    *unsafe { self.values.get_unchecked_mut(index) } = Some(value);
-  }
-
   /// Returns `true` if the sparse vec contains no elements.
   ///
   /// # Examples
@@ -422,6 +307,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   ///
   /// assert!(vec.iter().eq(&[Some(3), Some(4), Some(5)]));
   /// ```
+  #[must_use]
   pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> {
     self.values.iter_mut()
   }
@@ -443,30 +329,6 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   #[must_use]
   pub fn len(&self) -> usize {
     self.values.len()
-  }
-
-  /// Removes and returns the element at position `index` within the sparse vec, if it exists.
-  ///
-  /// This does not change the length of the sparse vec as the value is replaced with `None`.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseVec;
-  /// #
-  /// let mut vec = SparseVec::new();
-  /// vec.insert(0, 1);
-  /// vec.insert(1, 2);
-  /// vec.insert(2, 3);
-  ///
-  /// assert_eq!(vec.remove(1), Some(2));
-  /// assert!(vec.iter().eq(&[Some(1), None, Some(3)]));
-  /// ```
-  pub fn remove(&mut self, index: I) -> Option<T> {
-    let index = index.into();
-    self.values.get_mut(index).and_then(|opt| opt.take())
   }
 
   /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseVec<I, T>`.
@@ -670,6 +532,148 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
     }
 
     0
+  }
+}
+
+impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
+  /// Returns `true` if the sparse vec contains an element at the given index.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut vec = SparseSet::new();
+  ///
+  /// vec.insert(0, 1);
+  /// vec.insert(1, 2);
+  /// vec.insert(2, 3);
+  ///
+  /// assert!(vec.contains(0));
+  /// assert!(!vec.contains(100));
+  /// ```
+  #[must_use]
+  pub fn contains(&self, index: I) -> bool {
+    self.get(index).is_some()
+  }
+
+  /// Returns a reference to an element pointed to by the index, if it exists.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseVec;
+  /// #
+  /// let mut vec = SparseVec::new();
+  ///
+  /// vec.insert(0, 1);
+  /// vec.insert(1, 2);
+  /// vec.insert(2, 3);
+  /// assert_eq!(Some(&2), vec.get(1));
+  /// assert_eq!(None, vec.get(3));
+  ///
+  /// vec.remove(1);
+  /// assert_eq!(None, vec.get(1));
+  /// ```
+  #[must_use]
+  pub fn get(&self, index: I) -> Option<&T> {
+    self
+      .values
+      .get(index.into())
+      .and_then(|inner| inner.as_ref())
+  }
+
+  /// Returns a mutable reference to an element pointed to by the index, if it exists.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseVec;
+  /// #
+  /// let mut vec = SparseVec::new();
+  ///
+  /// vec.insert(0, 1);
+  /// vec.insert(1, 2);
+  /// vec.insert(2, 3);
+  ///
+  /// if let Some(elem) = vec.get_mut(1) {
+  ///   *elem = 42;
+  /// }
+  ///
+  /// assert!(vec.iter().eq(&[Some(1), Some(42), Some(3)]));
+  /// ```
+  #[must_use]
+  pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
+    self
+      .values
+      .get_mut(index.into())
+      .and_then(|inner| inner.as_mut())
+  }
+
+  /// Inserts an element at position `index` within the sparse vec.
+  ///
+  /// If a value already existed at `index`, it will be overwritten.
+  ///
+  /// If `index` is greater than `capacity`, then an allocation will take place.
+  ///
+  /// This operation is amortized *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut vec = SparseSet::new();
+  ///
+  /// vec.insert(0, 1);
+  /// vec.insert(1, 4);
+  /// vec.insert(2, 2);
+  /// vec.insert(3, 3);
+  ///
+  /// assert!(vec.values().eq(&[1, 4, 2, 3]));
+  /// vec.insert(20, 5);
+  /// assert!(vec.values().eq(&[1, 4, 2, 3, 5]));
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn insert(&mut self, index: I, value: T) {
+    let index = index.into();
+
+    if index >= self.len() {
+      self.values.resize_with(index + 1, || None);
+    }
+
+    *unsafe { self.values.get_unchecked_mut(index) } = Some(value);
+  }
+
+  /// Removes and returns the element at position `index` within the sparse vec, if it exists.
+  ///
+  /// This does not change the length of the sparse vec as the value is replaced with `None`.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseVec;
+  /// #
+  /// let mut vec = SparseVec::new();
+  /// vec.insert(0, 1);
+  /// vec.insert(1, 2);
+  /// vec.insert(2, 3);
+  ///
+  /// assert_eq!(vec.remove(1), Some(2));
+  /// assert!(vec.iter().eq(&[Some(1), None, Some(3)]));
+  /// ```
+  #[must_use]
+  pub fn remove(&mut self, index: I) -> Option<T> {
+    let index = index.into();
+    self.values.get_mut(index).and_then(|opt| opt.take())
   }
 }
 
