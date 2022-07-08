@@ -677,25 +677,25 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> AsRef<SparseVec<I, T, A>> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsRef<SparseVec<I, T, A>> for SparseVec<I, T, A> {
   fn as_ref(&self) -> &Self {
     self
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> AsMut<SparseVec<I, T, A>> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsMut<SparseVec<I, T, A>> for SparseVec<I, T, A> {
   fn as_mut(&mut self) -> &mut Self {
     self
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> AsRef<[Option<T>]> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsRef<[Option<T>]> for SparseVec<I, T, A> {
   fn as_ref(&self) -> &[Option<T>] {
     &self.values
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> AsMut<[Option<T>]> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsMut<[Option<T>]> for SparseVec<I, T, A> {
   fn as_mut(&mut self) -> &mut [Option<T>] {
     &mut self.values
   }
@@ -715,7 +715,7 @@ impl<I, T> Default for SparseVec<I, T> {
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> Deref for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> Deref for SparseVec<I, T, A> {
   type Target = [Option<T>];
 
   fn deref(&self) -> &[Option<T>] {
@@ -723,7 +723,7 @@ impl<I: SparseSetIndex, T, A: Allocator> Deref for SparseVec<I, T, A> {
   }
 }
 
-impl<I: SparseSetIndex, T, A: Allocator> DerefMut for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> DerefMut for SparseVec<I, T, A> {
   fn deref_mut(&mut self) -> &mut [Option<T>] {
     &mut *self.values
   }
@@ -787,7 +787,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseVec<I, T> {
   }
 }
 
-impl<I: SparseSetIndex, T: Hash, A: Allocator> Hash for SparseVec<I, T, A> {
+impl<I, T: Hash, A: Allocator> Hash for SparseVec<I, T, A> {
   fn hash<H: Hasher>(&self, state: &mut H) {
     self.values.hash(state);
   }
@@ -817,7 +817,7 @@ impl<I, T, A: Allocator> IntoIterator for SparseVec<I, T, A> {
   }
 }
 
-impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a SparseVec<I, T, A> {
+impl<'a, I, T, A: Allocator> IntoIterator for &'a SparseVec<I, T, A> {
   type Item = &'a Option<T>;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -826,7 +826,7 @@ impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a SparseVec<I, T
   }
 }
 
-impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a mut SparseVec<I, T, A> {
+impl<'a, I, T, A: Allocator> IntoIterator for &'a mut SparseVec<I, T, A> {
   type Item = &'a mut Option<T>;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -835,13 +835,13 @@ impl<'a, I: SparseSetIndex, T, A: Allocator> IntoIterator for &'a mut SparseVec<
   }
 }
 
-impl<I: SparseSetIndex, T: PartialEq, A: Allocator> PartialEq for SparseVec<I, T, A> {
+impl<I, T: PartialEq, A: Allocator> PartialEq for SparseVec<I, T, A> {
   fn eq(&self, other: &Self) -> bool {
     self.values == other.values
   }
 }
 
-impl<I: SparseSetIndex, T: Eq, A: Allocator> Eq for SparseVec<I, T, A> {}
+impl<I, T: Eq, A: Allocator> Eq for SparseVec<I, T, A> {}
 
 #[cfg(test)]
 mod test {
