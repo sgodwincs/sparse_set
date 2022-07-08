@@ -3,6 +3,6 @@
 /// A type with this trait indicates it can be used as an index into a `SparseSet`.
 ///
 /// Two indices must convert to the same `usize` if and only if they are equal.
-pub trait SparseSetIndex: Clone + Into<usize> {}
+pub trait SparseSetIndex: Copy + Into<usize> {}
 
 impl SparseSetIndex for usize {}
