@@ -192,7 +192,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// Returns a reference to the underlying dense buffer allocator.
   #[must_use]
   pub fn dense_allocator(&self) -> &DA {
@@ -263,6 +263,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// assert_eq!(set.as_indices_slice(), &[0, 1, 2]);
   /// ```
+  #[must_use]
   pub fn as_indices_slice(&self) -> &[I] {
     &*self.indices
   }
@@ -276,6 +277,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// The caller must also ensure that the memory the pointer (non-transitively) points to is never written to (except
   /// inside an `UnsafeCell`) using this pointer or any pointer derived from it.
+  #[must_use]
   pub fn as_indices_ptr(&self) -> *const I {
     self.indices.as_ptr()
   }
@@ -333,87 +335,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   pub fn clear(&mut self) {
     self.dense.clear();
+    self.indices.clear();
     self.sparse.clear();
-  }
-
-  /// Returns `true` if the sparse set contains an element at the given index.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  ///
-  /// set.insert(0, 1);
-  /// set.insert(1, 2);
-  /// set.insert(2, 3);
-  ///
-  /// assert!(set.contains(0));
-  /// assert!(!set.contains(100));
-  /// ```
-  #[must_use]
-  pub fn contains(&self, index: I) -> bool {
-    self.get(index).is_some()
-  }
-
-  /// Returns a reference to an element pointed to by the index, if it exists.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  ///
-  /// set.insert(0, 1);
-  /// set.insert(1, 2);
-  /// set.insert(2, 3);
-  /// assert_eq!(Some(&2), set.get(1));
-  /// assert_eq!(None, set.get(3));
-  ///
-  /// set.remove(1);
-  /// assert_eq!(None, set.get(1));
-  /// ```
-  #[must_use]
-  pub fn get(&self, index: I) -> Option<&T> {
-    self
-      .sparse
-      .get(index)
-      .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
-  }
-
-  /// Returns a mutable reference to an element pointed to by the index, if it exists.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  ///
-  /// set.insert(0, 1);
-  /// set.insert(1, 2);
-  /// set.insert(2, 3);
-  ///
-  /// if let Some(elem) = set.get_mut(1) {
-  ///   *elem = 42;
-  /// }
-  ///
-  /// assert!(set.values().eq(&[1, 42, 3]));
-  /// ```
-  #[must_use]
-  pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
-    self
-      .sparse
-      .get(index)
-      .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
   }
 
   /// Returns an iterator over the sparse set's indices.
@@ -439,49 +362,9 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// assert_eq!(iterator.next(), Some(&2));
   /// assert_eq!(iterator.next(), None);
   /// ```
+  #[must_use]
   pub fn indices(&self) -> impl Iterator<Item = &I> {
     self.indices.iter()
-  }
-
-  /// Inserts an element at position `index` within the sparse set.
-  ///
-  /// If a value already existed at `index`, it will be overwritten.
-  ///
-  /// If `index` is greater than `sparse_capacity`, then an allocation will take place.
-  ///
-  /// This operation is amortized *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  ///
-  /// set.insert(0, 1);
-  /// set.insert(1, 4);
-  /// set.insert(2, 2);
-  /// set.insert(3, 3);
-  ///
-  /// assert!(set.values().eq(&[1, 4, 2, 3]));
-  /// set.insert(20, 5);
-  /// assert!(set.values().eq(&[1, 4, 2, 3, 5]));
-  /// ```
-  #[cfg(not(no_global_oom_handling))]
-  pub fn insert(&mut self, index: I, value: T) {
-    match self.sparse.get(index.clone()) {
-      Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
-        *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
-      }
-      None => {
-        self.sparse.insert(index.clone(), unsafe {
-          NonZeroUsize::new_unchecked(self.dense_len() + 1)
-        });
-        self.dense.push(value);
-        self.indices.push(index);
-      }
-    }
   }
 
   /// Returns `true` if the sparse set contains no elements.
@@ -538,44 +421,6 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   #[must_use]
   pub fn sparse_len(&self) -> usize {
     self.sparse.len()
-  }
-
-  /// Removes and returns the element at position `index` within the sparse set, if it exists.
-  ///
-  /// This operation is *O*(*1*).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::SparseSet;
-  /// #
-  /// let mut set = SparseSet::new();
-  /// set.insert(0, 1);
-  /// set.insert(1, 2);
-  /// set.insert(2, 3);
-  ///
-  /// assert_eq!(set.remove(1), Some(2));
-  /// assert!(set.values().eq(&[1, 3]));
-  /// ```
-  pub fn remove(&mut self, index: I) -> Option<T> {
-    match self.sparse.remove(index) {
-      Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
-        let value = Some(self.dense.swap_remove(dense_index));
-        let _ = self.indices.swap_remove(dense_index);
-
-        if dense_index != self.dense.len() {
-          let swapped_index: usize = unsafe { self.indices.get_unchecked(dense_index) }
-            .clone()
-            .into();
-          *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
-            Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
-        }
-
-        value
-      }
-      _ => None,
-    }
   }
 
   /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s dense
@@ -968,11 +813,9 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// let mut iterator = set.values();
   ///
-  /// assert_eq!(iterator.next(), Some(&1));
-  /// assert_eq!(iterator.next(), Some(&2));
-  /// assert_eq!(iterator.next(), Some(&3));
-  /// assert_eq!(iterator.next(), None);
+  /// assert!(set.values().eq(&[1, 2, 3]));
   /// ```
+  #[must_use]
   pub fn values(&self) -> impl Iterator<Item = &T> {
     self.dense.iter()
   }
@@ -997,12 +840,175 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// assert!(set.values().eq(&[3, 4, 5]));
   /// ```
+  #[must_use]
   pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
     self.dense.iter_mut()
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsRef<SparseSet<I, T, SA, DA>>
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
+  /// Returns `true` if the sparse set contains an element at the given index.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// assert!(set.contains(0));
+  /// assert!(!set.contains(100));
+  /// ```
+  #[must_use]
+  pub fn contains(&self, index: I) -> bool {
+    self.get(index).is_some()
+  }
+
+  /// Returns a reference to an element pointed to by the index, if it exists.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  /// assert_eq!(Some(&2), set.get(1));
+  /// assert_eq!(None, set.get(3));
+  ///
+  /// set.remove(1);
+  /// assert_eq!(None, set.get(1));
+  /// ```
+  #[must_use]
+  pub fn get(&self, index: I) -> Option<&T> {
+    self
+      .sparse
+      .get(index)
+      .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
+  }
+
+  /// Returns a mutable reference to an element pointed to by the index, if it exists.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// if let Some(elem) = set.get_mut(1) {
+  ///   *elem = 42;
+  /// }
+  ///
+  /// assert!(set.values().eq(&[1, 42, 3]));
+  /// ```
+  #[must_use]
+  pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
+    self
+      .sparse
+      .get(index)
+      .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
+  }
+
+  /// Inserts an element at position `index` within the sparse set.
+  ///
+  /// If a value already existed at `index`, it will be overwritten.
+  ///
+  /// If `index` is greater than `sparse_capacity`, then an allocation will take place.
+  ///
+  /// This operation is amortized *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 4);
+  /// set.insert(2, 2);
+  /// set.insert(3, 3);
+  ///
+  /// assert!(set.values().eq(&[1, 4, 2, 3]));
+  /// set.insert(20, 5);
+  /// assert!(set.values().eq(&[1, 4, 2, 3, 5]));
+  /// ```
+  #[cfg(not(no_global_oom_handling))]
+  pub fn insert(&mut self, index: I, value: T) {
+    match self.sparse.get(index.clone()) {
+      Some(dense_index) => {
+        let dense_index = dense_index.get() - 1;
+        *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
+      }
+      None => {
+        self.sparse.insert(index.clone(), unsafe {
+          NonZeroUsize::new_unchecked(self.dense_len() + 1)
+        });
+        self.dense.push(value);
+        self.indices.push(index);
+      }
+    }
+  }
+
+  /// Removes and returns the element at position `index` within the sparse set, if it exists.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// assert_eq!(set.remove(1), Some(2));
+  /// assert!(set.values().eq(&[1, 3]));
+  /// ```
+  #[must_use]
+  pub fn remove(&mut self, index: I) -> Option<T> {
+    match self.sparse.remove(index) {
+      Some(dense_index) => {
+        let dense_index = dense_index.get() - 1;
+        let value = Some(self.dense.swap_remove(dense_index));
+        let _ = self.indices.swap_remove(dense_index);
+
+        if dense_index != self.dense.len() {
+          let swapped_index: usize = unsafe { self.indices.get_unchecked(dense_index) }
+            .clone()
+            .into();
+          *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
+            Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
+        }
+
+        value
+      }
+      _ => None,
+    }
+  }
+}
+
+impl<I, T, SA: Allocator, DA: Allocator> AsRef<SparseSet<I, T, SA, DA>>
   for SparseSet<I, T, SA, DA>
 {
   fn as_ref(&self) -> &Self {
@@ -1010,7 +1016,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsRef<SparseSet<I, T, S
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsMut<SparseSet<I, T, SA, DA>>
+impl<I, T, SA: Allocator, DA: Allocator> AsMut<SparseSet<I, T, SA, DA>>
   for SparseSet<I, T, SA, DA>
 {
   fn as_mut(&mut self) -> &mut Self {
@@ -1018,13 +1024,13 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsMut<SparseSet<I, T, S
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsRef<[T]> for SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> AsRef<[T]> for SparseSet<I, T, SA, DA> {
   fn as_ref(&self) -> &[T] {
     &self.dense
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> AsMut<[T]> for SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> AsMut<[T]> for SparseSet<I, T, SA, DA> {
   fn as_mut(&mut self) -> &mut [T] {
     &mut self.dense
   }
@@ -1036,7 +1042,7 @@ impl<I, T> Default for SparseSet<I, T> {
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Deref for SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> Deref for SparseSet<I, T, SA, DA> {
   type Target = [T];
 
   fn deref(&self) -> &[T] {
@@ -1044,7 +1050,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Deref for SparseSet<I, 
   }
 }
 
-impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> DerefMut for SparseSet<I, T, SA, DA> {
+impl<I, T, SA: Allocator, DA: Allocator> DerefMut for SparseSet<I, T, SA, DA> {
   fn deref_mut(&mut self) -> &mut [T] {
     &mut *self.dense
   }
@@ -1110,12 +1116,13 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
   }
 }
 
-impl<I: SparseSetIndex, T: Hash, SA: Allocator, DA: Allocator> Hash for SparseSet<I, T, SA, DA> {
+impl<I: Hash + SparseSetIndex, T: Hash, SA: Allocator, DA: Allocator> Hash
+  for SparseSet<I, T, SA, DA>
+{
   fn hash<H: Hasher>(&self, state: &mut H) {
     for index in self.sparse.iter() {
-      index.is_some().hash(state);
-
       if let Some(index) = index {
+        unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
         unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
       }
     }
@@ -1146,9 +1153,7 @@ impl<I, T, SA: Allocator, DA: Allocator> IntoIterator for SparseSet<I, T, SA, DA
   }
 }
 
-impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
-  for &'a SparseSet<I, T, SA, DA>
-{
+impl<'a, I, T, SA: Allocator, DA: Allocator> IntoIterator for &'a SparseSet<I, T, SA, DA> {
   type Item = &'a T;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -1157,9 +1162,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
   }
 }
 
-impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
-  for &'a mut SparseSet<I, T, SA, DA>
-{
+impl<'a, I, T, SA: Allocator, DA: Allocator> IntoIterator for &'a mut SparseSet<I, T, SA, DA> {
   type Item = &'a mut T;
   type IntoIter = impl Iterator<Item = Self::Item>;
 
@@ -1168,7 +1171,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
   }
 }
 
-impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
+impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
   for SparseSet<I, T, SA, DA>
 {
   fn eq(&self, other: &Self) -> bool {
@@ -1182,7 +1185,18 @@ impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
         other.sparse.get(index.clone()),
       ) {
         (Some(index), Some(other_index)) => {
-          if self.dense.get(index.get() - 1) != other.dense.get(other_index.get() - 1) {
+          let index = index.get() - 1;
+          let other_index = other_index.get() - 1;
+
+          if unsafe { self.indices.get_unchecked(index) }
+            != unsafe { other.indices.get_unchecked(other_index) }
+          {
+            return false;
+          }
+
+          if unsafe { self.dense.get_unchecked(index) }
+            != unsafe { other.dense.get_unchecked(other_index) }
+          {
             return false;
           }
         }
@@ -1197,7 +1211,7 @@ impl<I: SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> PartialEq
   }
 }
 
-impl<I: SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
+impl<I: Eq + SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
 
 #[cfg(test)]
 mod test {
