@@ -364,7 +364,7 @@ impl<I, T, A: Allocator> SparseVec<I, T, A> {
   /// Note that the allocator may give the collection more space than it requests. Therefore, capacity can not be relied
   /// upon to be precisely minimal. Prefer [`reserve`] if future insertions are expected.
   ///
-  /// [`reserve`]: SparseSet::reserve
+  /// [`reserve`]: SparseVec::reserve
   ///
   /// # Panics
   ///
@@ -543,9 +543,9 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::SparseSet;
+  /// # use sparse_set::SparseVec;
   /// #
-  /// let mut vec = SparseSet::new();
+  /// let mut vec = SparseVec::new();
   ///
   /// vec.insert(0, 1);
   /// vec.insert(1, 2);
@@ -629,16 +629,16 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// ```
   /// # use sparse_set::SparseSet;
   /// #
-  /// let mut vec = SparseSet::new();
+  /// let mut vec = SparseVec::new();
   ///
   /// vec.insert(0, 1);
   /// vec.insert(1, 4);
   /// vec.insert(2, 2);
   /// vec.insert(3, 3);
   ///
-  /// assert!(vec.values().eq(&[1, 4, 2, 3]));
-  /// vec.insert(20, 5);
-  /// assert!(vec.values().eq(&[1, 4, 2, 3, 5]));
+  /// assert!(vec.values().eq(&[Some(1), Some(4), Some(2), Some(3)]));
+  /// vec.insert(5, 5);
+  /// assert!(vec.values().eq(&[Some(1), Some(4), Some(2), Some(3), None, Some(5)]));
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert(&mut self, index: I, value: T) {
