@@ -1209,7 +1209,7 @@ mod test {
   }
 
   #[test]
-  fn test_as_ref_mut() {
+  fn test_as_mut() {
     let mut set = SparseVec::new();
     set.insert(0, 1);
     set.insert(1, 2);

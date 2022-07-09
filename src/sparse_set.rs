@@ -367,6 +367,52 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
     self.indices.iter()
   }
 
+  /// Returns an iterator over the sparse set's indices and values as pairs.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// let mut iterator = set.values();
+  ///
+  /// assert!(set.iter().eq([(&0, &1), (&1, &2), (&2, &3)]));
+  /// ```
+  pub fn iter(&self) -> impl Iterator<Item = (&I, &T)> {
+    self.indices.iter().zip(self.dense.iter())
+  }
+
+  /// Returns an iterator that allows modifying each value as an `(index, value)` pair.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// assert!(set.iter_mut().eq([(&0, &mut 1), (&1, &mut 2), (&2, &mut 3)]));
+  /// ```
+  pub fn iter_mut(&mut self) -> impl Iterator<Item = (&I, &mut T)> {
+    self.indices.iter().zip(self.dense.iter_mut())
+  }
+
   /// Returns `true` if the sparse set contains no elements.
   ///
   /// # Examples
@@ -824,6 +870,8 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// Do not rely on the order being consistent across insertions and removals.
   ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  ///
   /// # Examples
   ///
   /// ```
@@ -1142,30 +1190,30 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IndexMut<I> for SparseS
 }
 
 impl<I, T, SA: Allocator, DA: Allocator> IntoIterator for SparseSet<I, T, SA, DA> {
-  type Item = T;
+  type Item = (I, T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   #[inline]
   fn into_iter(self) -> Self::IntoIter {
-    self.dense.into_iter()
+    self.indices.into_iter().zip(self.dense.into_iter())
   }
 }
 
 impl<'a, I, T, SA: Allocator, DA: Allocator> IntoIterator for &'a SparseSet<I, T, SA, DA> {
-  type Item = &'a T;
+  type Item = (&'a I, &'a T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
-    self.values()
+    self.iter()
   }
 }
 
 impl<'a, I, T, SA: Allocator, DA: Allocator> IntoIterator for &'a mut SparseSet<I, T, SA, DA> {
-  type Item = &'a mut T;
+  type Item = (&'a I, &'a mut T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
-    self.values_mut()
+    self.iter_mut()
   }
 }
 
@@ -1416,6 +1464,35 @@ mod test {
 
     set.insert(0, 2);
     assert_eq!(set.get(0), Some(&2));
+  }
+
+  #[test]
+  fn test_iter() {
+    let mut set = SparseSet::new();
+    assert!(set.iter().eq([]));
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert!(set.iter().eq([(&0, &1), (&1, &2), (&2, &3)]));
+  }
+
+  #[test]
+  fn test_iter_mut() {
+    let mut set = SparseSet::new();
+    assert!(set.iter_mut().eq([]));
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert!(set
+      .iter_mut()
+      .eq([(&0, &mut 1), (&1, &mut 2), (&2, &mut 3)]));
+
+    let value = set.iter_mut().next().unwrap();
+    *(value.1) = 100;
+
+    assert_eq!(set.first(), Some(&100));
   }
 
   #[test]
@@ -1757,7 +1834,7 @@ mod test {
   }
 
   #[test]
-  fn test_as_ref_mut() {
+  fn test_as_mut() {
     let mut set = SparseSet::new();
     set.insert(0, 1);
     set.insert(1, 2);
@@ -1994,32 +2071,34 @@ mod test {
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
-    assert!(set.into_iter().eq([1, 2, 3]));
+    assert!(set.into_iter().eq([(0, 1), (1, 2), (2, 3)]));
   }
 
   #[test]
   fn test_into_iterator_ref() {
     let mut set = SparseSet::new();
-    assert!((&set).into_iter().eq(&[]));
+    assert!((&set).into_iter().eq([]));
 
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
-    assert!((&set).into_iter().eq(&[1, 2, 3]));
+    assert!((&set).into_iter().eq([(&0, &1), (&1, &2), (&2, &3)]));
   }
 
   #[test]
   fn test_into_iterator_mut() {
     let mut set = SparseSet::new();
-    assert!((&mut set).into_iter().eq(&[]));
+    assert!((&mut set).into_iter().eq([]));
 
     set.insert(0, 1);
     set.insert(1, 2);
     set.insert(2, 3);
-    assert!((&mut set).into_iter().eq(&[1, 2, 3]));
+    assert!((&mut set)
+      .into_iter()
+      .eq([(&0, &mut 1), (&1, &mut 2), (&2, &mut 3)]));
 
-    let value = set.values_mut().next().unwrap();
-    *value = 100;
+    let value = (&mut set).into_iter().next().unwrap();
+    *(value.1) = 100;
 
     assert_eq!(set.first(), Some(&100));
   }
