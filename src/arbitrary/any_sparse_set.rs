@@ -17,6 +17,7 @@ use crate::{
 };
 
 /// Wrapper around an `AnySparseSet` to enable an `Arbitrary implementation.
+#[derive(Debug)]
 pub struct AnySparseSetWrapper<I, T, Traits: ?Sized + Trait = dyn None> {
   set: AnySparseSet<I, Traits>,
   _marker: PhantomData<T>,
@@ -36,7 +37,7 @@ impl<I, T, Traits: ?Sized + Trait> DerefMut for AnySparseSetWrapper<I, T, Traits
   }
 }
 
-impl<'a, I: From<usize> + SparseSetIndex, T: 'static + Arbitrary<'a>, Traits: ?Sized + Trait>
+impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a> + 'static, Traits: ?Sized + Trait>
   Arbitrary<'a> for AnySparseSetWrapper<I, T, Traits>
 where
   T: SatisfyTraits<Traits>,

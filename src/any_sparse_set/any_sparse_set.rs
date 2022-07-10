@@ -3,6 +3,7 @@
 use std::{
   alloc::{Allocator, Global, Layout},
   any::TypeId,
+  fmt::{self, Debug, Formatter},
   num::NonZeroUsize,
 };
 
@@ -1061,6 +1062,34 @@ impl<
       sparse: self.sparse.clone(),
       indices: self.indices.clone(),
     }
+  }
+}
+
+impl<I: Debug, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder> Debug
+  for AnySparseSet<I, Traits, SA, IA, M>
+{
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    /// Type used in `Debug` implementation to indicate an erased type.
+    #[derive(Debug)]
+    struct Erased;
+
+    /// Type used in `Debug` implementation to format the iterator as a map.
+    struct Entries<'a, I>(&'a [I]);
+
+    impl<I: Debug> Debug for Entries<'_, I> {
+      fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+          .debug_map()
+          .entries(self.0.iter().map(|index| (index, Erased)))
+          .finish()
+      }
+    }
+
+    formatter
+      .debug_struct("AnySparseSet")
+      .field("type_id", &self.element_typeid())
+      .field("entries", &Entries(&self.indices))
+      .finish()
   }
 }
 

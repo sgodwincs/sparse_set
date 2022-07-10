@@ -2,7 +2,7 @@
 
 use std::{
   alloc::{Allocator, Global},
-  fmt,
+  fmt::{self, Debug, Formatter},
   hash::{Hash, Hasher},
   num::NonZeroUsize,
   ops::{Deref, DerefMut, Index, IndexMut},
@@ -448,11 +448,11 @@ impl<I, T, SA: Allocator, IA: Allocator, M: MemBuilder> DerefMut
   }
 }
 
-impl<I, T: fmt::Debug, SA: Allocator, IA: Allocator, M: MemBuilder> fmt::Debug
+impl<I: Debug, T: Debug, SA: Allocator, IA: Allocator, M: MemBuilder> Debug
   for AnySparseSetMut<'_, I, T, SA, IA, M>
 {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    self.dense.as_slice().fmt(formatter)
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter.debug_map().entries(self.iter()).finish()
   }
 }
 
@@ -1116,20 +1116,6 @@ mod test {
 
     let reference: &mut [usize] = set_ref.as_mut();
     assert_eq!(reference.first(), Some(&1));
-  }
-
-  #[test]
-  fn test_debug() {
-    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert_eq!(format!("{:?}", set.downcast_mut::<usize>().unwrap()), "[]");
-
-    set.insert(0, AnyValueWrapper::new(1usize));
-    set.insert(1, AnyValueWrapper::new(2usize));
-    set.insert(2, AnyValueWrapper::new(3usize));
-    assert_eq!(
-      format!("{:?}", set.downcast_mut::<usize>().unwrap()),
-      "[1, 2, 3]"
-    );
   }
 
   #[test]

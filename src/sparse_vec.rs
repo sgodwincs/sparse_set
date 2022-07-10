@@ -1260,17 +1260,6 @@ mod test {
   }
 
   #[test]
-  fn test_debug() {
-    let mut set = SparseVec::new();
-    assert_eq!(format!("{:?}", set), "[]");
-
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert_eq!(format!("{:?}", set), "[Some(1), Some(2), Some(3)]");
-  }
-
-  #[test]
   fn test_default() {
     let set: SparseVec<usize, usize> = SparseVec::default();
     assert!(set.is_empty());

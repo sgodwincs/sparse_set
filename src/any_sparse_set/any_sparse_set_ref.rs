@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 use std::{
-  fmt,
+  fmt::{self, Debug, Formatter},
   hash::{Hash, Hasher},
   num::NonZeroUsize,
   ops::{Deref, Index},
@@ -170,9 +170,9 @@ impl<I, T, M: MemBuilder> Deref for AnySparseSetRef<'_, I, T, M> {
   }
 }
 
-impl<I, T: fmt::Debug, M: MemBuilder> fmt::Debug for AnySparseSetRef<'_, I, T, M> {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    self.dense.as_slice().fmt(formatter)
+impl<I: Debug, T: Debug, M: MemBuilder> Debug for AnySparseSetRef<'_, I, T, M> {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter.debug_map().entries(self.iter()).finish()
   }
 }
 
@@ -431,20 +431,6 @@ mod test {
     assert_eq!(
       set.downcast_ref::<usize>().unwrap(),
       cloned_set.downcast_ref::<usize>().unwrap()
-    );
-  }
-
-  #[test]
-  fn test_debug() {
-    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert_eq!(format!("{:?}", set.downcast_ref::<usize>().unwrap()), "[]");
-
-    set.insert(0, AnyValueWrapper::new(1usize));
-    set.insert(1, AnyValueWrapper::new(2usize));
-    set.insert(2, AnyValueWrapper::new(3usize));
-    assert_eq!(
-      format!("{:?}", set.downcast_ref::<usize>().unwrap()),
-      "[1, 2, 3]"
     );
   }
 

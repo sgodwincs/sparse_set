@@ -9,7 +9,7 @@
 use std::{
   alloc::{Allocator, Global},
   collections::TryReserveError,
-  fmt,
+  fmt::{self, Debug, Formatter},
   hash::{Hash, Hasher},
   num::NonZeroUsize,
   ops::{Deref, DerefMut, Index, IndexMut},
@@ -1102,9 +1102,9 @@ impl<I, T, SA: Allocator, DA: Allocator> DerefMut for SparseSet<I, T, SA, DA> {
   }
 }
 
-impl<I, T: fmt::Debug, SA: Allocator, DA: Allocator> fmt::Debug for SparseSet<I, T, SA, DA> {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    self.dense.fmt(formatter)
+impl<I: Debug, T: Debug, SA: Allocator, DA: Allocator> Debug for SparseSet<I, T, SA, DA> {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter.debug_map().entries(self.iter()).finish()
   }
 }
 
@@ -1882,17 +1882,6 @@ mod test {
     }
 
     assert_eq!(*num_dropped.borrow(), 6);
-  }
-
-  #[test]
-  fn test_debug() {
-    let mut set = SparseSet::new();
-    assert_eq!(format!("{:?}", set), "[]");
-
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert_eq!(format!("{:?}", set), "[1, 2, 3]");
   }
 
   #[test]
