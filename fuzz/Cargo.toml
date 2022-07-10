@@ -12,12 +12,18 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.sparse_set]
-features = ["arbitrary"]
+features = ["arbitrary", "unstable"]
 path = ".."
 
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "any_sparse_set"
+path = "fuzz_targets/any_sparse_set.rs"
+test = false
+doc = false
 
 [[bin]]
 name = "sparse_set"
