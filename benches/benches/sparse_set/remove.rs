@@ -1,5 +1,5 @@
 use criterion::{criterion_group, Bencher, Criterion};
-use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet, SparseSet};
+use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet, SparseSet};
 use sparseset::SparseSet as CrateSparseSet;
 use std::collections::HashMap;
 

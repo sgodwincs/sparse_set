@@ -10,8 +10,6 @@
 pub mod arbitrary;
 
 #[cfg(feature = "any_vec")]
-pub use any_vec;
-#[cfg(feature = "any_vec")]
 pub mod any_sparse_set;
 
 pub mod index;

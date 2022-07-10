@@ -80,7 +80,7 @@ impl<I, Traits: ?Sized + Trait> AnySparseSet<I, Traits, Global, Global, Heap> {
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::with_capacity::<usize>(11, 10);
   ///
@@ -136,7 +136,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   ///
   /// use std::alloc::System;
   /// #
-  /// # use sparse_set::{any_vec::{mem::Heap, traits::None}, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::{mem::Heap, traits::None}, AnySparseSet};
   ///
   /// # #[allow(unused_mut)]
   /// let mut set: AnySparseSet<usize, dyn None, _, _, _> = AnySparseSet::new_in::<usize>(System, System, Heap);
@@ -173,7 +173,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   ///
   /// use std::alloc::System;
   /// #
-  /// # use sparse_set::{any_vec::{any_value::AnyValueWrapper, mem::Heap, traits::None}, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::{any_value::AnyValueWrapper, mem::Heap, traits::None}, AnySparseSet};
   ///
   /// let mut set: AnySparseSet<usize, dyn None, _, _, _> =
   ///   AnySparseSet::with_capacity_in::<usize>(10, System, 10, Heap, System);
@@ -243,7 +243,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -311,7 +311,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -392,7 +392,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -421,7 +421,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -446,7 +446,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -469,7 +469,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   /// assert!(set.is_empty());
@@ -487,7 +487,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -507,7 +507,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -535,7 +535,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -565,7 +565,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -596,7 +596,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -630,7 +630,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -653,7 +653,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::with_capacity::<usize>(10, 10);
   ///
@@ -685,7 +685,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::with_capacity::<usize>(10, 10);
   ///
@@ -710,7 +710,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::with_capacity::<usize>(10, 10);
   ///
@@ -743,7 +743,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::with_capacity::<usize>(10, 10);
   ///
@@ -770,7 +770,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -796,7 +796,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -830,7 +830,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -854,7 +854,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -877,7 +877,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -900,7 +900,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -928,7 +928,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -961,7 +961,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::AnyValueWrapper, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///
@@ -998,7 +998,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   /// # Examples
   ///
   /// ```
-  /// # use sparse_set::{any_vec::any_value::{AnyValue, AnyValueWrapper}, AnySparseSet};
+  /// # use sparse_set::{any_sparse_set::any_value::{AnyValue, AnyValueWrapper}, AnySparseSet};
   /// #
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   ///

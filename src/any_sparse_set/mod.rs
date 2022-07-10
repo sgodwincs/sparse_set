@@ -8,6 +8,10 @@ mod any_sparse_set;
 mod any_sparse_set_mut;
 mod any_sparse_set_ref;
 
+pub use any_vec::{
+  any_value, element, mem, ops, traits, ElementIterator, Iter, IterMut, IterRef, SatisfyTraits,
+};
+
 pub use any_sparse_set::*;
 pub use any_sparse_set_mut::*;
 pub use any_sparse_set_ref::*;
