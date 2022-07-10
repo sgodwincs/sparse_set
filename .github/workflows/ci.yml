@@ -18,7 +18,7 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Build & run tests
-        run: cargo test
+        run: cargo test --all-features
   miri:
     runs-on: ubuntu-latest
     steps:
@@ -29,7 +29,7 @@ jobs:
           components: miri
           override: true
       - name: Test with Miri
-        run: cargo miri test
+        run: cargo miri test --all-features
   mutation:
     runs-on: ubuntu-latest
     steps:
@@ -49,17 +49,6 @@ jobs:
         with:
           name: mutation-report
           path: mutants.out
-  all-doc-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-      - uses: Swatinem/rust-cache@v1
-      - name: Run doc tests with all features (this also compiles README examples)
-        run: cargo test --doc --all-features
   lint:
     runs-on: ubuntu-latest
     steps:
