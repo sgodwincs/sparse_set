@@ -435,6 +435,20 @@ mod test {
   }
 
   #[test]
+  fn test_debug() {
+    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+    assert_eq!(format!("{:?}", set.downcast_ref::<usize>().unwrap()), "{}");
+
+    set.insert(0, AnyValueWrapper::new(1usize));
+    set.insert(1, AnyValueWrapper::new(2usize));
+    set.insert(2, AnyValueWrapper::new(3usize));
+    assert_eq!(
+      format!("{:?}", set.downcast_ref::<usize>().unwrap()),
+      "{0: 1, 1: 2, 2: 3}"
+    );
+  }
+
+  #[test]
   fn test_deref() {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
     set.insert(0, AnyValueWrapper::new(1usize));

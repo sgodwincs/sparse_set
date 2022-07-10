@@ -1904,6 +1904,29 @@ mod test {
   }
 
   #[test]
+  fn test_debug() {
+    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+    assert_eq!(
+      format!("{:?}", set),
+      format!(
+        "AnySparseSet {{ type_id: {:?}, entries: {{}} }}",
+        TypeId::of::<usize>()
+      )
+    );
+
+    set.insert(0, AnyValueWrapper::new(1usize));
+    set.insert(1, AnyValueWrapper::new(2usize));
+    set.insert(2, AnyValueWrapper::new(3usize));
+    assert_eq!(
+      format!("{:?}", set),
+      format!(
+        "AnySparseSet {{ type_id: {:?}, entries: {{0: Erased, 1: Erased, 2: Erased}} }}",
+        TypeId::of::<usize>()
+      )
+    );
+  }
+
+  #[test]
   fn test_drop() {
     let num_dropped = Rc::new(RefCell::new(0));
 

@@ -1885,6 +1885,17 @@ mod test {
   }
 
   #[test]
+  fn test_debug() {
+    let mut set = SparseSet::new();
+    assert_eq!(format!("{:?}", set), "{}");
+
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+    assert_eq!(format!("{:?}", set), "{0: 1, 1: 2, 2: 3}");
+  }
+
+  #[test]
   fn test_default() {
     let set: SparseSet<usize, usize> = SparseSet::default();
     assert!(set.is_empty());
