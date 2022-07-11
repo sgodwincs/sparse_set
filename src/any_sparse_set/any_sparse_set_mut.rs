@@ -105,7 +105,6 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
-  #[must_use]
   pub fn indices(&self) -> impl Iterator<Item = &I> {
     self.indices.iter()
   }
@@ -278,7 +277,6 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
-  #[must_use]
   pub fn values(&self) -> impl Iterator<Item = &T> {
     self.dense.iter()
   }
@@ -288,7 +286,6 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
-  #[must_use]
   pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
     self.dense.iter_mut()
   }
@@ -482,11 +479,9 @@ impl<I: Hash + SparseSetIndex, T: Hash, SA: Allocator, IA: Allocator, M: MemBuil
   for AnySparseSetMut<'_, I, T, SA, IA, M>
 {
   fn hash<H: Hasher>(&self, state: &mut H) {
-    for index in self.sparse.iter() {
-      if let Some(index) = index {
-        unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
-        unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
-      }
+    for index in self.sparse.iter().flatten() {
+      unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
+      unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
     }
   }
 }

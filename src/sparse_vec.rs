@@ -307,7 +307,6 @@ impl<I, T, A: Allocator> SparseVec<I, T, A> {
   ///
   /// assert!(vec.iter().eq(&[Some(3), Some(4), Some(5)]));
   /// ```
-  #[must_use]
   pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<T>> {
     self.values.iter_mut()
   }

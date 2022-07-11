@@ -42,7 +42,7 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
   /// Do not rely on the order being consistent across insertions and removals.
   #[must_use]
   pub fn as_indices_slice(&self) -> &[I] {
-    &*self.indices
+    self.indices
   }
 
   /// Returns a raw pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
@@ -64,7 +64,6 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
   /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
-  #[must_use]
   pub fn indices(&self) -> impl Iterator<Item = &I> {
     self.indices.iter()
   }
@@ -101,7 +100,6 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
   /// Do not rely on the order being consistent across insertions and removals.
   ///
   /// Consuming the iterator is an *O*(*n*) operation.
-  #[must_use]
   pub fn values(&self) -> impl Iterator<Item = &T> {
     self.dense.iter()
   }
@@ -178,11 +176,9 @@ impl<I: Debug, T: Debug, M: MemBuilder> Debug for AnySparseSetRef<'_, I, T, M> {
 
 impl<I: SparseSetIndex, T: Hash, M: MemBuilder> Hash for AnySparseSetRef<'_, I, T, M> {
   fn hash<H: Hasher>(&self, state: &mut H) {
-    for index in self.sparse.iter() {
-      if let Some(index) = index {
-        unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
-        unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
-      }
+    for index in self.sparse.iter().flatten() {
+      unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
+      unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
     }
   }
 }

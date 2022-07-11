@@ -362,7 +362,6 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// assert_eq!(iterator.next(), Some(&2));
   /// assert_eq!(iterator.next(), None);
   /// ```
-  #[must_use]
   pub fn indices(&self) -> impl Iterator<Item = &I> {
     self.indices.iter()
   }
@@ -861,7 +860,6 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// assert!(set.values().eq(&[1, 2, 3]));
   /// ```
-  #[must_use]
   pub fn values(&self) -> impl Iterator<Item = &T> {
     self.dense.iter()
   }
@@ -888,7 +886,6 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// assert!(set.values().eq(&[3, 4, 5]));
   /// ```
-  #[must_use]
   pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
     self.dense.iter_mut()
   }
@@ -1166,11 +1163,9 @@ impl<I: Hash + SparseSetIndex, T: Hash, SA: Allocator, DA: Allocator> Hash
   for SparseSet<I, T, SA, DA>
 {
   fn hash<H: Hasher>(&self, state: &mut H) {
-    for index in self.sparse.iter() {
-      if let Some(index) = index {
-        unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
-        unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
-      }
+    for index in self.sparse.iter().flatten() {
+      unsafe { self.sparse.get_unchecked(index.get() - 1) }.hash(state);
+      unsafe { self.dense.get_unchecked(index.get() - 1) }.hash(state);
     }
   }
 }
