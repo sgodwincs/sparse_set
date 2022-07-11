@@ -16,7 +16,7 @@ use crate::{
   SparseSetIndex,
 };
 
-/// Wrapper around an `AnySparseSet` to enable an `Arbitrary implementation.
+/// Wrapper around an `AnySparseSet` to enable an `Arbitrary` implementation.
 #[derive(Debug)]
 pub struct AnySparseSetWrapper<I, T, Traits: ?Sized + Trait = dyn None> {
   set: AnySparseSet<I, Traits>,
@@ -37,10 +37,12 @@ impl<I, T, Traits: ?Sized + Trait> DerefMut for AnySparseSetWrapper<I, T, Traits
   }
 }
 
-impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a> + 'static, Traits: ?Sized + Trait>
-  Arbitrary<'a> for AnySparseSetWrapper<I, T, Traits>
-where
-  T: SatisfyTraits<Traits>,
+impl<
+    'a,
+    I: From<usize> + SparseSetIndex,
+    T: Arbitrary<'a> + SatisfyTraits<Traits> + 'static,
+    Traits: ?Sized + Trait,
+  > Arbitrary<'a> for AnySparseSetWrapper<I, T, Traits>
 {
   fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
     // Get the number of `T`s we should insert into our collection.

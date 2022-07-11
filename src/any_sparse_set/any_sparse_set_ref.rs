@@ -83,13 +83,13 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
     self.dense_len() == 0
   }
 
-  /// Returns the number of elements in the dense set, also referred to as its 'dense_len'.
+  /// Returns the number of elements in the dense set, also referred to as its '`dense_len`'.
   #[must_use]
   pub fn dense_len(&self) -> usize {
     self.dense.len()
   }
 
-  /// Returns the number of elements in the sparse set, also referred to as its 'sparse_len'.
+  /// Returns the number of elements in the sparse set, also referred to as its '`sparse_len`'.
   #[must_use]
   pub fn sparse_len(&self) -> usize {
     self.sparse.len()
@@ -133,7 +133,7 @@ impl<I: SparseSetIndex, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> 
     self
       .sparse
       .get(index.into())
-      .and_then(|opt: &Option<NonZeroUsize>| opt.as_ref())
+      .and_then(Option::as_ref)
       .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
   }
 }
@@ -449,7 +449,7 @@ mod test {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
     set.insert(0, AnyValueWrapper::new(1usize));
 
-    assert_eq!(set.downcast_ref::<usize>().unwrap().deref(), &[1]);
+    assert_eq!(&*set.downcast_ref::<usize>().unwrap(), &[1]);
   }
 
   #[test]

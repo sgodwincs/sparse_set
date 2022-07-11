@@ -430,7 +430,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
     self.dense_len() == 0
   }
 
-  /// Returns the number of elements in the dense set, also referred to as its 'dense_len'.
+  /// Returns the number of elements in the dense set, also referred to as its '`dense_len`'.
   ///
   /// # Examples
   ///
@@ -449,7 +449,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
     self.dense.len()
   }
 
-  /// Returns the number of elements in the sparse set, also referred to as its 'sparse_len'.
+  /// Returns the number of elements in the sparse set, also referred to as its '`sparse_len`'.
   ///
   /// # Examples
   ///
@@ -756,7 +756,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_fit_dense(&mut self) {
-    self.dense.shrink_to_fit()
+    self.dense.shrink_to_fit();
   }
 
   /// Shrinks the sparse capacity of the sparse set as much as possible.
@@ -837,7 +837,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_sparse(&mut self, min_capacity: usize) {
-    self.sparse.shrink_to(min_capacity)
+    self.sparse.shrink_to(min_capacity);
   }
 
   /// Returns an iterator over the sparse set's values.
@@ -1220,7 +1220,7 @@ impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> 
       return false;
     }
 
-    for index in self.indices.iter() {
+    for index in &self.indices {
       match (self.sparse.get(*index), other.sparse.get(*index)) {
         (Some(index), Some(other_index)) => {
           let index = index.get() - 1;
@@ -1903,7 +1903,7 @@ mod test {
     let mut set: SparseSet<usize, usize> = SparseSet::default();
     set.insert(0, 1);
 
-    assert_eq!(set.deref(), &[1]);
+    assert_eq!(&*set, &[1]);
   }
 
   #[test]
@@ -1911,7 +1911,7 @@ mod test {
     let mut set: SparseSet<usize, usize> = SparseSet::default();
     set.insert(0, 1);
 
-    assert_eq!(set.deref_mut(), &mut [1]);
+    assert_eq!(&mut *set, &mut [1]);
   }
 
   #[test]

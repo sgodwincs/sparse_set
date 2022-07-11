@@ -133,13 +133,13 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.dense_len() == 0
   }
 
-  /// Returns the number of elements in the dense set, also referred to as its 'dense_len'.
+  /// Returns the number of elements in the dense set, also referred to as its '`dense_len`'.
   #[must_use]
   pub fn dense_len(&self) -> usize {
     self.dense.len()
   }
 
-  /// Returns the number of elements in the sparse set, also referred to as its 'sparse_len'.
+  /// Returns the number of elements in the sparse set, also referred to as its '`sparse_len`'.
   #[must_use]
   pub fn sparse_len(&self) -> usize {
     self.sparse.len()
@@ -229,7 +229,7 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   where
     M::Mem: MemResizable,
   {
-    self.dense.shrink_to_fit()
+    self.dense.shrink_to_fit();
   }
 
   /// Shrinks the sparse capacity of the sparse set as much as possible.
@@ -269,7 +269,7 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// If the current capacity is less than the lower limit, this is a no-op.
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_sparse(&mut self, min_capacity: usize) {
-    self.sparse.shrink_to(min_capacity)
+    self.sparse.shrink_to(min_capacity);
   }
 
   /// Returns an iterator over the sparse set's values.
@@ -1132,7 +1132,7 @@ mod test {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
     set.insert(0, AnyValueWrapper::new(1usize));
 
-    assert_eq!(set.downcast_mut::<usize>().unwrap().deref(), &[1]);
+    assert_eq!(&*set.downcast_mut::<usize>().unwrap(), &[1]);
   }
 
   #[test]
@@ -1140,7 +1140,7 @@ mod test {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
     set.insert(0, AnyValueWrapper::new(1usize));
 
-    assert_eq!(set.downcast_mut::<usize>().unwrap().deref_mut(), &mut [1]);
+    assert_eq!(&mut *set.downcast_mut::<usize>().unwrap(), &mut [1]);
   }
 
   #[test]

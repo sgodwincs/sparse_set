@@ -70,10 +70,7 @@ impl<I, Traits: ?Sized + Trait> AnySparseSet<I, Traits, Global, Global, Heap> {
   /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
   /// ```
   #[must_use]
-  pub fn new<T: 'static>() -> Self
-  where
-    T: SatisfyTraits<Traits>,
-  {
+  pub fn new<T: SatisfyTraits<Traits> + 'static>() -> Self {
     AnySparseSet::new_in::<T>(Global, Global, Heap)
   }
 
@@ -122,10 +119,10 @@ impl<I, Traits: ?Sized + Trait> AnySparseSet<I, Traits, Global, Global, Heap> {
   /// ```
   #[cfg(not(no_global_oom_handling))]
   #[must_use]
-  pub fn with_capacity<T: 'static>(sparse_capacity: usize, dense_capacity: usize) -> Self
-  where
-    T: SatisfyTraits<Traits>,
-  {
+  pub fn with_capacity<T: SatisfyTraits<Traits> + 'static>(
+    sparse_capacity: usize,
+    dense_capacity: usize,
+  ) -> Self {
     assert!(
       sparse_capacity >= dense_capacity,
       "Sparse capacity must be at least as large as the dense capacity."
@@ -154,10 +151,11 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// let mut set: AnySparseSet<usize, dyn None, _, _, _> = AnySparseSet::new_in::<usize>(System, System, Heap);
   /// ```
   #[must_use]
-  pub fn new_in<T: 'static>(sparse_alloc: SA, indices_alloc: IA, dense_mem: M) -> Self
-  where
-    T: SatisfyTraits<Traits>,
-  {
+  pub fn new_in<T: SatisfyTraits<Traits> + 'static>(
+    sparse_alloc: SA,
+    indices_alloc: IA,
+    dense_mem: M,
+  ) -> Self {
     Self {
       dense: AnyVec::new_in::<T>(dense_mem),
       sparse: SparseVec::new_in(sparse_alloc),
@@ -214,7 +212,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// assert!(set.sparse_capacity() >= 11);
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn with_capacity_in<T: 'static>(
+  pub fn with_capacity_in<T: SatisfyTraits<Traits> + 'static>(
     sparse_capacity: usize,
     sparse_alloc: SA,
     dense_capacity: usize,
@@ -223,7 +221,6 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   ) -> Self
   where
     M: MemBuilderSizeable,
-    T: SatisfyTraits<Traits>,
   {
     Self {
       dense: AnyVec::with_capacity_in::<T>(dense_capacity, dense_mem),
@@ -493,7 +490,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.dense_len() == 0
   }
 
-  /// Returns the number of elements in the dense set, also referred to as its 'dense_len'.
+  /// Returns the number of elements in the dense set, also referred to as its '`dense_len`'.
   ///
   /// # Examples
   ///
@@ -513,7 +510,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.dense.len()
   }
 
-  /// Returns the number of elements in the sparse set, also referred to as its 'sparse_len'.
+  /// Returns the number of elements in the sparse set, also referred to as its '`sparse_len`'.
   ///
   /// # Examples
   ///
@@ -680,7 +677,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   where
     M::Mem: MemResizable,
   {
-    self.dense.shrink_to_fit()
+    self.dense.shrink_to_fit();
   }
 
   /// Shrinks the sparse capacity of the sparse set as much as possible.
@@ -769,7 +766,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_sparse(&mut self, min_capacity: usize) {
-    self.sparse.shrink_to(min_capacity)
+    self.sparse.shrink_to(min_capacity);
   }
 
   /// Returns an iterator over the sparse set's values.
@@ -1121,10 +1118,12 @@ impl<
 }
 
 #[cfg(not(no_global_oom_handling))]
-impl<I: SparseSetIndex, T: 'static, Traits: ?Sized + Trait, const N: usize> From<[(I, T); N]>
-  for AnySparseSet<I, Traits>
-where
-  T: SatisfyTraits<Traits>,
+impl<
+    I: SparseSetIndex,
+    T: SatisfyTraits<Traits> + 'static,
+    Traits: ?Sized + Trait,
+    const N: usize,
+  > From<[(I, T); N]> for AnySparseSet<I, Traits>
 {
   fn from(slice: [(I, T); N]) -> Self {
     let mut set = AnySparseSet::with_capacity::<T>(slice.len(), slice.len());
@@ -1138,10 +1137,8 @@ where
 }
 
 #[cfg(not(no_global_oom_handling))]
-impl<I: SparseSetIndex, T: 'static, Traits: ?Sized + Trait> FromIterator<(I, T)>
-  for AnySparseSet<I, Traits>
-where
-  T: SatisfyTraits<Traits>,
+impl<I: SparseSetIndex, T: SatisfyTraits<Traits> + 'static, Traits: ?Sized + Trait>
+  FromIterator<(I, T)> for AnySparseSet<I, Traits>
 {
   fn from_iter<Iter: IntoIterator<Item = (I, T)>>(iter: Iter) -> Self {
     let iter = iter.into_iter();

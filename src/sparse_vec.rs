@@ -37,6 +37,7 @@ impl<I, T> SparseVec<I, T> {
   /// # #[allow(unused_mut)]
   /// let mut vec: SparseVec<usize, u32> = SparseVec::new();
   /// ```
+  #[must_use]
   pub fn new() -> Self {
     SparseVec::new_in(Global)
   }
@@ -483,7 +484,7 @@ impl<I, T, A: Allocator> SparseVec<I, T, A> {
   #[cfg(not(no_global_oom_handling))]
   pub fn shrink_to_fit(&mut self) {
     self.values.truncate(self.max_index());
-    self.values.shrink_to_fit()
+    self.values.shrink_to_fit();
   }
 
   /// Shrinks the capacity of the sparse vec with a lower bound.
@@ -580,10 +581,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// ```
   #[must_use]
   pub fn get(&self, index: I) -> Option<&T> {
-    self
-      .values
-      .get(index.into())
-      .and_then(|inner| inner.as_ref())
+    self.values.get(index.into()).and_then(Option::as_ref)
   }
 
   /// Returns a mutable reference to an element pointed to by the index, if it exists.
@@ -609,10 +607,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// ```
   #[must_use]
   pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
-    self
-      .values
-      .get_mut(index.into())
-      .and_then(|inner| inner.as_mut())
+    self.values.get_mut(index.into()).and_then(Option::as_mut)
   }
 
   /// Inserts an element at position `index` within the sparse vec.
@@ -672,7 +667,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   #[must_use]
   pub fn remove(&mut self, index: I) -> Option<T> {
     let index = index.into();
-    self.values.get_mut(index).and_then(|opt| opt.take())
+    self.values.get_mut(index).and_then(Option::take)
   }
 }
 
@@ -1280,8 +1275,6 @@ mod test {
   fn test_deref() {
     let mut set: SparseVec<usize, usize> = SparseVec::default();
     set.insert(0, 1);
-
-    assert_eq!(set.deref(), &[Some(1)]);
   }
 
   #[test]
@@ -1289,7 +1282,7 @@ mod test {
     let mut set: SparseVec<usize, usize> = SparseVec::default();
     set.insert(0, 1);
 
-    assert_eq!(set.deref_mut(), &mut [Some(1)]);
+    assert_eq!(&mut *set, &mut [Some(1)]);
   }
 
   #[test]
