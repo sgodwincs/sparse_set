@@ -53,7 +53,7 @@ mod test {
   #[test]
   fn test_sparse_set_arbitrary() {
     let bytes = (0..255).into_iter().collect::<Vec<u8>>().repeat(100);
-    let mut u = Unstructured::new(&*bytes);
+    let mut u = Unstructured::new(&bytes);
     let set: SparseSet<usize, usize> = SparseSet::arbitrary(&mut u).unwrap();
     assert!(!set.is_empty());
   }
@@ -61,7 +61,7 @@ mod test {
   #[test]
   fn test_sparse_vec_arbitrary() {
     let bytes = (0..255).into_iter().collect::<Vec<u8>>().repeat(100);
-    let mut u = Unstructured::new(&*bytes);
+    let mut u = Unstructured::new(&bytes);
     let set: SparseVec<usize, usize> = SparseVec::arbitrary(&mut u).unwrap();
     assert!(!set.is_empty());
   }

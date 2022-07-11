@@ -71,7 +71,7 @@ mod test {
   #[test]
   fn test_any_sparse_set_arbitrary() {
     let bytes = (0..255).into_iter().collect::<Vec<u8>>().repeat(100);
-    let mut u = Unstructured::new(&*bytes);
+    let mut u = Unstructured::new(&bytes);
     let set: AnySparseSetWrapper<usize, usize> = AnySparseSetWrapper::arbitrary(&mut u).unwrap();
     assert!(!set.is_empty());
   }

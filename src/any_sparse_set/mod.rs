@@ -264,7 +264,7 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
   /// ```
   #[must_use]
   pub fn as_indices_slice(&self) -> &[I] {
-    &*self.indices
+    &self.indices
   }
 
   /// Returns a raw pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
@@ -1532,7 +1532,7 @@ mod test {
     *(value.1.downcast_mut::<usize>().unwrap()) = 100;
 
     assert_eq!(
-      (&mut set)
+      set
         .iter_mut()
         .map(|(i, mut v)| (i, v.downcast_mut::<usize>().unwrap()))
         .next(),

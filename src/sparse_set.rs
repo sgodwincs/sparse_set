@@ -265,7 +265,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// ```
   #[must_use]
   pub fn as_indices_slice(&self) -> &[I] {
-    &*self.indices
+    &self.indices
   }
 
   /// Returns a raw pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
@@ -1085,13 +1085,13 @@ impl<I, T, SA: Allocator, DA: Allocator> Deref for SparseSet<I, T, SA, DA> {
   type Target = [T];
 
   fn deref(&self) -> &[T] {
-    &*self.dense
+    &self.dense
   }
 }
 
 impl<I, T, SA: Allocator, DA: Allocator> DerefMut for SparseSet<I, T, SA, DA> {
   fn deref_mut(&mut self) -> &mut [T] {
-    &mut *self.dense
+    &mut self.dense
   }
 }
 

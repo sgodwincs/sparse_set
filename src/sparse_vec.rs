@@ -713,13 +713,13 @@ impl<I, T, A: Allocator> Deref for SparseVec<I, T, A> {
   type Target = [Option<T>];
 
   fn deref(&self) -> &[Option<T>] {
-    &*self.values
+    &self.values
   }
 }
 
 impl<I, T, A: Allocator> DerefMut for SparseVec<I, T, A> {
   fn deref_mut(&mut self) -> &mut [Option<T>] {
-    &mut *self.values
+    &mut self.values
   }
 }
 
