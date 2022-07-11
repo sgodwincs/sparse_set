@@ -38,8 +38,8 @@ impl<I, T> SparseVec<I, T> {
   /// let mut vec: SparseVec<usize, u32> = SparseVec::new();
   /// ```
   #[must_use]
-  pub fn new() -> Self {
-    SparseVec::new_in(Global)
+  pub const fn new() -> Self {
+    Self::new_in(Global)
   }
 
   /// Constructs a new, empty `SparseVec<I, T>` with the specified capacity.
@@ -82,7 +82,7 @@ impl<I, T> SparseVec<I, T> {
   #[cfg(not(no_global_oom_handling))]
   #[must_use]
   pub fn with_capacity(capacity: usize) -> Self {
-    SparseVec::with_capacity_in(capacity, Global)
+    Self::with_capacity_in(capacity, Global)
   }
 }
 
@@ -104,7 +104,7 @@ impl<I, T, A: Allocator> SparseVec<I, T, A> {
   /// let mut vec: SparseVec<usize, u32, _> = SparseVec::new_in(System);
   /// ```
   #[must_use]
-  pub fn new_in(alloc: A) -> Self {
+  pub const fn new_in(alloc: A) -> Self {
     Self {
       values: Vec::new_in(alloc),
       _marker: PhantomData,
@@ -671,13 +671,13 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   }
 }
 
-impl<I, T, A: Allocator> AsRef<SparseVec<I, T, A>> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsRef<Self> for SparseVec<I, T, A> {
   fn as_ref(&self) -> &Self {
     self
   }
 }
 
-impl<I, T, A: Allocator> AsMut<SparseVec<I, T, A>> for SparseVec<I, T, A> {
+impl<I, T, A: Allocator> AsMut<Self> for SparseVec<I, T, A> {
   fn as_mut(&mut self) -> &mut Self {
     self
   }
@@ -697,7 +697,7 @@ impl<I, T, A: Allocator> AsMut<[Option<T>]> for SparseVec<I, T, A> {
 
 impl<I, T: Clone, A: Allocator + Clone> Clone for SparseVec<I, T, A> {
   fn clone(&self) -> Self {
-    SparseVec {
+    Self {
       values: self.values.clone(),
       _marker: PhantomData,
     }
@@ -752,7 +752,7 @@ impl<I: SparseSetIndex, T, A: Allocator> Extend<(I, T)> for SparseVec<I, T, A> {
 #[cfg(not(no_global_oom_handling))]
 impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseVec<I, T> {
   fn from(slice: [(I, T); N]) -> Self {
-    let mut vec = SparseVec::with_capacity(slice.len());
+    let mut vec = Self::with_capacity(slice.len());
 
     for (index, value) in slice {
       vec.insert(index, value);
@@ -766,12 +766,11 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseVec<I, T>
 impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseVec<I, T> {
   fn from_iter<Iter: IntoIterator<Item = (I, T)>>(iter: Iter) -> Self {
     let iter = iter.into_iter();
-    let capacity = if let Some(size_hint) = iter.size_hint().1 {
-      size_hint
-    } else {
-      iter.size_hint().0
-    };
-    let mut vec = SparseVec::with_capacity(capacity);
+    let capacity = iter
+      .size_hint()
+      .1
+      .map_or_else(|| iter.size_hint().0, |size_hint| size_hint);
+    let mut vec = Self::with_capacity(capacity);
 
     for (index, value) in iter {
       vec.insert(index, value);

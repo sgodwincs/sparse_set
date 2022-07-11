@@ -14,7 +14,7 @@ impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for Sp
   fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
     // Get the number of `T`s we should insert into our collection.
     let len = u.arbitrary_len::<T>()?;
-    let mut set = SparseSet::with_capacity(len, len);
+    let mut set = Self::with_capacity(len, len);
 
     for _ in 0..len {
       if *u.choose(&[false, true])? {
@@ -32,7 +32,7 @@ impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for Sp
   fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
     // Get the number of `T`s we should insert into our collection.
     let len = u.arbitrary_len::<T>()?;
-    let mut set = SparseVec::with_capacity(len);
+    let mut set = Self::with_capacity(len);
 
     for _ in 0..len {
       if *u.choose(&[false, true])? {

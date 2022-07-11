@@ -7,6 +7,8 @@ edition = "2021"
 repository = "https://github.com/sgodwincs/sparse_set"
 description = "Implementation of the sparse set data structure"
 readme = "README.md"
+categories = ["data-structures"]
+keywords = ["sparse", "set"]
 
 [features]
 unstable = ["any_vec"]

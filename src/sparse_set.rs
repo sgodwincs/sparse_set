@@ -49,8 +49,8 @@ impl<I, T> SparseSet<I, T> {
   /// let mut set: SparseSet<usize, u32> = SparseSet::new();
   /// ```
   #[must_use]
-  pub fn new() -> Self {
-    SparseSet::new_in(Global, Global, Global)
+  pub const fn new() -> Self {
+    Self::new_in(Global, Global, Global)
   }
 
   /// Constructs a new, empty `SparseSet<I, T>` with the specified capacity.
@@ -100,7 +100,7 @@ impl<I, T> SparseSet<I, T> {
       sparse_capacity >= dense_capacity,
       "Sparse capacity must be at least as large as the dense capacity."
     );
-    SparseSet::with_capacity_in(sparse_capacity, Global, dense_capacity, Global, Global)
+    Self::with_capacity_in(sparse_capacity, Global, dense_capacity, Global, Global)
   }
 }
 
@@ -122,7 +122,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// let mut set: SparseSet<usize, u32, _, _> = SparseSet::new_in(System, System, System);
   /// ```
   #[must_use]
-  pub fn new_in(sparse_alloc: SA, dense_alloc: DA, indices_alloc: DA) -> Self {
+  pub const fn new_in(sparse_alloc: SA, dense_alloc: DA, indices_alloc: DA) -> Self {
     Self {
       dense: Vec::new_in(dense_alloc),
       sparse: SparseVec::new_in(sparse_alloc),
@@ -1051,17 +1051,13 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   }
 }
 
-impl<I, T, SA: Allocator, DA: Allocator> AsRef<SparseSet<I, T, SA, DA>>
-  for SparseSet<I, T, SA, DA>
-{
+impl<I, T, SA: Allocator, DA: Allocator> AsRef<Self> for SparseSet<I, T, SA, DA> {
   fn as_ref(&self) -> &Self {
     self
   }
 }
 
-impl<I, T, SA: Allocator, DA: Allocator> AsMut<SparseSet<I, T, SA, DA>>
-  for SparseSet<I, T, SA, DA>
-{
+impl<I, T, SA: Allocator, DA: Allocator> AsMut<Self> for SparseSet<I, T, SA, DA> {
   fn as_mut(&mut self) -> &mut Self {
     self
   }
@@ -1130,7 +1126,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Extend<(I, T)>
 #[cfg(not(no_global_oom_handling))]
 impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseSet<I, T> {
   fn from(slice: [(I, T); N]) -> Self {
-    let mut set = SparseSet::with_capacity(slice.len(), slice.len());
+    let mut set = Self::with_capacity(slice.len(), slice.len());
 
     for (index, value) in slice {
       set.insert(index, value);
@@ -1144,12 +1140,11 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseSet<I, T>
 impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
   fn from_iter<Iter: IntoIterator<Item = (I, T)>>(iter: Iter) -> Self {
     let iter = iter.into_iter();
-    let capacity = if let Some(size_hint) = iter.size_hint().1 {
-      size_hint
-    } else {
-      iter.size_hint().0
-    };
-    let mut set = SparseSet::with_capacity(capacity, capacity);
+    let capacity = iter
+      .size_hint()
+      .1
+      .map_or_else(|| iter.size_hint().0, |size_hint| size_hint);
+    let mut set = Self::with_capacity(capacity, capacity);
 
     for (index, value) in iter {
       set.insert(index, value);

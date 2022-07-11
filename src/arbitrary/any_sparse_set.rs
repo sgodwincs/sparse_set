@@ -57,7 +57,7 @@ impl<
       }
     }
 
-    Ok(AnySparseSetWrapper {
+    Ok(Self {
       set,
       _marker: PhantomData,
     })

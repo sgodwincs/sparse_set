@@ -71,7 +71,7 @@ impl<I, Traits: ?Sized + Trait> AnySparseSet<I, Traits, Global, Global, Heap> {
   /// ```
   #[must_use]
   pub fn new<T: SatisfyTraits<Traits> + 'static>() -> Self {
-    AnySparseSet::new_in::<T>(Global, Global, Heap)
+    Self::new_in::<T>(Global, Global, Heap)
   }
 
   /// Constructs a new, empty `AnySparseSet<I, Traits>` with the specified capacity.
@@ -127,7 +127,7 @@ impl<I, Traits: ?Sized + Trait> AnySparseSet<I, Traits, Global, Global, Heap> {
       sparse_capacity >= dense_capacity,
       "Sparse capacity must be at least as large as the dense capacity."
     );
-    AnySparseSet::with_capacity_in::<T>(sparse_capacity, Global, dense_capacity, Heap, Global)
+    Self::with_capacity_in::<T>(sparse_capacity, Global, dense_capacity, Heap, Global)
   }
 }
 
@@ -1039,16 +1039,16 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
   }
 }
 
-impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
-  AsRef<AnySparseSet<I, Traits, SA, IA, M>> for AnySparseSet<I, Traits, SA, IA, M>
+impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder> AsRef<Self>
+  for AnySparseSet<I, Traits, SA, IA, M>
 {
   fn as_ref(&self) -> &Self {
     self
   }
 }
 
-impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
-  AsMut<AnySparseSet<I, Traits, SA, IA, M>> for AnySparseSet<I, Traits, SA, IA, M>
+impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder> AsMut<Self>
+  for AnySparseSet<I, Traits, SA, IA, M>
 {
   fn as_mut(&mut self) -> &mut Self {
     self
@@ -1126,7 +1126,7 @@ impl<
   > From<[(I, T); N]> for AnySparseSet<I, Traits>
 {
   fn from(slice: [(I, T); N]) -> Self {
-    let mut set = AnySparseSet::with_capacity::<T>(slice.len(), slice.len());
+    let mut set = Self::with_capacity::<T>(slice.len(), slice.len());
 
     for (index, value) in slice {
       set.insert(index, AnyValueWrapper::new(value));
@@ -1142,12 +1142,11 @@ impl<I: SparseSetIndex, T: SatisfyTraits<Traits> + 'static, Traits: ?Sized + Tra
 {
   fn from_iter<Iter: IntoIterator<Item = (I, T)>>(iter: Iter) -> Self {
     let iter = iter.into_iter();
-    let capacity = if let Some(size_hint) = iter.size_hint().1 {
-      size_hint
-    } else {
-      iter.size_hint().0
-    };
-    let mut set = AnySparseSet::with_capacity::<T>(capacity, capacity);
+    let capacity = iter
+      .size_hint()
+      .1
+      .map_or_else(|| iter.size_hint().0, |size_hint| size_hint);
+    let mut set = Self::with_capacity::<T>(capacity, capacity);
 
     for (index, value) in iter {
       set.insert(index, AnyValueWrapper::new(value));
