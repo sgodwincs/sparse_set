@@ -60,7 +60,7 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v1
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D clippy::all
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Check format
         run: cargo fmt --all -- --check
   coverage:
