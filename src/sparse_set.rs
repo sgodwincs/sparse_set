@@ -1004,11 +1004,11 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
         *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
       }
       None => {
-        self.sparse.insert(index, unsafe {
-          NonZeroUsize::new_unchecked(self.dense_len() + 1)
-        });
         self.dense.push(value);
         self.indices.push(index);
+        self.sparse.insert(index, unsafe {
+          NonZeroUsize::new_unchecked(self.dense_len())
+        });
       }
     }
   }
