@@ -15,7 +15,6 @@ rustflags = [
   "-Wsingle_use_lifetimes",
   "-Wtrivial_casts",
   "-Wtrivial_numeric_casts",
-  "-Wunreachable_pub",
   "-Wunsafe_code",
   "-Wunsafe_op_in_unsafe_fn",
   "-Wunused_extern_crates",
