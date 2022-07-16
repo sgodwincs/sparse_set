@@ -100,15 +100,6 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.sparse.clear();
   }
 
-  /// Returns an iterator over the sparse set's indices.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  pub fn indices(&self) -> impl Iterator<Item = &I> {
-    self.indices.iter()
-  }
-
   /// Returns `true` if the sparse set contains no elements.
   #[must_use]
   pub fn is_empty(&self) -> bool {
@@ -326,6 +317,15 @@ impl<I: SparseSetIndex, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
       .sparse
       .get(index)
       .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
+  }
+
+  /// Returns an iterator over the sparse set's indices.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
+    self.indices.iter().cloned()
   }
 
   /// Returns an iterator over the sparse set's indices and values as pairs.
@@ -729,16 +729,12 @@ mod test {
   #[test]
   fn test_indices() {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert!(set.downcast_mut::<usize>().unwrap().indices().eq(&[]));
+    assert!(set.downcast_mut::<usize>().unwrap().indices().eq([]));
 
     set.insert(0, AnyValueWrapper::new(1usize));
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
-    assert!(set
-      .downcast_mut::<usize>()
-      .unwrap()
-      .indices()
-      .eq(&[0, 1, 2]));
+    assert!(set.downcast_mut::<usize>().unwrap().indices().eq([0, 1, 2]));
   }
 
   #[test]

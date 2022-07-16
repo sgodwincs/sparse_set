@@ -59,15 +59,6 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
     self.indices.as_ptr()
   }
 
-  /// Returns an iterator over the sparse set's indices.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  pub fn indices(&self) -> impl Iterator<Item = &I> {
-    self.indices.iter()
-  }
-
   /// Returns `true` if the sparse set contains no elements.
   #[must_use]
   pub fn is_empty(&self) -> bool {
@@ -126,6 +117,15 @@ impl<I: SparseSetIndex, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> 
       .get(index.into())
       .and_then(Option::as_ref)
       .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
+  }
+
+  /// Returns an iterator over the sparse set's indices.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
+    self.indices.iter().cloned()
   }
 
   /// Returns an iterator over the sparse set's indices and values as pairs.
@@ -318,22 +318,18 @@ mod test {
   #[test]
   fn test_indices() {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert!(set.downcast_ref::<usize>().unwrap().indices().eq(&[]));
+    assert!(set.downcast_ref::<usize>().unwrap().indices().eq([]));
 
     set.insert(0, AnyValueWrapper::new(1usize));
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
-    assert!(set
-      .downcast_ref::<usize>()
-      .unwrap()
-      .indices()
-      .eq(&[0, 1, 2]));
+    assert!(set.downcast_ref::<usize>().unwrap().indices().eq([0, 1, 2]));
   }
 
   #[test]
   fn test_iter() {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert!(set.downcast_ref::<usize>().unwrap().indices().eq(&[]));
+    assert!(set.downcast_ref::<usize>().unwrap().iter().eq([]));
 
     set.insert(0, AnyValueWrapper::new(1usize));
     set.insert(1, AnyValueWrapper::new(2usize));

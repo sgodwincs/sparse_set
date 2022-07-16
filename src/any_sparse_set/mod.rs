@@ -392,34 +392,6 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.dense.element_typeid()
   }
 
-  /// Returns an iterator over the sparse set's indices.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
-  /// #
-  /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-  ///
-  /// set.insert(0, AnyValueWrapper::new(1usize));
-  /// set.insert(1, AnyValueWrapper::new(2usize));
-  /// set.insert(2, AnyValueWrapper::new(3usize));
-  ///
-  /// let mut iterator = set.indices();
-  ///
-  /// assert_eq!(iterator.next(), Some(&0));
-  /// assert_eq!(iterator.next(), Some(&1));
-  /// assert_eq!(iterator.next(), Some(&2));
-  /// assert_eq!(iterator.next(), None);
-  /// ```
-  pub fn indices(&self) -> impl Iterator<Item = &I> {
-    self.indices.iter()
-  }
-
   /// Returns `true` if the sparse set contains no elements.
   ///
   /// # Examples
@@ -931,6 +903,34 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
     self.indices.iter().cloned().zip(self.dense.iter())
   }
 
+  /// Returns an iterator over the sparse set's indices.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
+  /// #
+  /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+  ///
+  /// set.insert(0, AnyValueWrapper::new(1usize));
+  /// set.insert(1, AnyValueWrapper::new(2usize));
+  /// set.insert(2, AnyValueWrapper::new(3usize));
+  ///
+  /// let mut iterator = set.indices();
+  ///
+  /// assert_eq!(iterator.next(), Some(0));
+  /// assert_eq!(iterator.next(), Some(1));
+  /// assert_eq!(iterator.next(), Some(2));
+  /// assert_eq!(iterator.next(), None);
+  /// ```
+  pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
+    self.indices.iter().cloned()
+  }
+
   /// Returns an iterator that allows modifying each value as an `(index, value)` pair.
   ///
   /// Do not rely on the order being consistent across insertions and removals.
@@ -1439,12 +1439,12 @@ mod test {
   #[test]
   fn test_indices() {
     let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-    assert!(set.indices().eq(&[]));
+    assert!(set.indices().eq([]));
 
     set.insert(0, AnyValueWrapper::new(1usize));
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
-    assert!(set.indices().eq(&[0, 1, 2]));
+    assert!(set.indices().eq([0, 1, 2]));
   }
 
   #[test]
