@@ -7,9 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2022-07-16
+
 ### Changed
 
 - Fixed a safety issue when the collection reaches maximum capacity.
+- Changed `(Index, Value)` iterators to copy the index instead of returning a reference. This required changes on some
+  trait bounds.
 
 ## [0.2.0] - 2022-07-10
 
