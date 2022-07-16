@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2022-07-16
+
+### Changed
+
+- Changed indices iterators to copy the index instead of returning a reference.
+
 ## [0.3.0] - 2022-07-16
 
 ### Changed
