@@ -109,24 +109,6 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
     self.indices.iter()
   }
 
-  /// Returns an iterator over the sparse set's indices and values as pairs.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  pub fn iter(&self) -> impl Iterator<Item = (&I, &T)> {
-    self.indices.iter().zip(self.dense.iter())
-  }
-
-  /// Returns an iterator that allows modifying each value as an `(index, value)` pair.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  pub fn iter_mut(&mut self) -> impl Iterator<Item = (&I, &mut T)> {
-    self.indices.iter().zip(self.dense.iter_mut())
-  }
-
   /// Returns `true` if the sparse set contains no elements.
   #[must_use]
   pub fn is_empty(&self) -> bool {
@@ -346,6 +328,24 @@ impl<I: SparseSetIndex, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
       .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
   }
 
+  /// Returns an iterator over the sparse set's indices and values as pairs.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  pub fn iter(&self) -> impl Iterator<Item = (I, &T)> {
+    self.indices.iter().cloned().zip(self.dense.iter())
+  }
+
+  /// Returns an iterator that allows modifying each value as an `(index, value)` pair.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  pub fn iter_mut(&mut self) -> impl Iterator<Item = (I, &mut T)> {
+    self.indices.iter().cloned().zip(self.dense.iter_mut())
+  }
+
   /// Inserts an element at position `index` within the sparse set.
   ///
   /// If a value already existed at `index`, it will be overwritten.
@@ -445,7 +445,7 @@ impl<I, T, SA: Allocator, IA: Allocator, M: MemBuilder> DerefMut
   }
 }
 
-impl<I: Debug, T: Debug, SA: Allocator, IA: Allocator, M: MemBuilder> Debug
+impl<I: Debug + SparseSetIndex, T: Debug, SA: Allocator, IA: Allocator, M: MemBuilder> Debug
   for AnySparseSetMut<'_, I, T, SA, IA, M>
 {
   fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
@@ -507,7 +507,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, IA: Allocator, M: MemBuilder> IndexMut
 impl<'a, I: SparseSetIndex, T, SA: Allocator, IA: Allocator, M: MemBuilder> IntoIterator
   for &'a AnySparseSetMut<'_, I, T, SA, IA, M>
 {
-  type Item = (&'a I, &'a T);
+  type Item = (I, &'a T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
@@ -518,7 +518,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, IA: Allocator, M: MemBuilder> Into
 impl<'a, I: SparseSetIndex, T, SA: Allocator, IA: Allocator, M: MemBuilder> IntoIterator
   for &'a mut AnySparseSetMut<'_, I, T, SA, IA, M>
 {
-  type Item = (&'a I, &'a mut T);
+  type Item = (I, &'a mut T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
@@ -794,7 +794,7 @@ mod test {
       .downcast_mut::<usize>()
       .unwrap()
       .iter()
-      .eq([(&0, &1), (&1, &2), (&2, &3)]));
+      .eq([(0, &1), (1, &2), (2, &3)]));
   }
 
   #[test]
@@ -806,9 +806,9 @@ mod test {
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
     assert!(set.downcast_mut::<usize>().unwrap().iter_mut().eq([
-      (&0, &mut 1),
-      (&1, &mut 2),
-      (&2, &mut 3)
+      (0, &mut 1),
+      (1, &mut 2),
+      (2, &mut 3)
     ]));
 
     let mut set_ref = set.downcast_mut::<usize>().unwrap();
@@ -1305,7 +1305,7 @@ mod test {
     set.insert(2, AnyValueWrapper::new(3usize));
     assert!((&set.downcast_mut::<usize>().unwrap())
       .into_iter()
-      .eq([(&0, &1), (&1, &2), (&2, &3)]));
+      .eq([(0, &1), (1, &2), (2, &3)]));
   }
 
   #[test]
@@ -1319,9 +1319,9 @@ mod test {
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
     assert!((&mut set.downcast_mut::<usize>().unwrap()).into_iter().eq([
-      (&0, &mut 1),
-      (&1, &mut 2),
-      (&2, &mut 3)
+      (0, &mut 1),
+      (1, &mut 2),
+      (2, &mut 3)
     ]));
 
     let mut set_ref = set.downcast_mut::<usize>().unwrap();

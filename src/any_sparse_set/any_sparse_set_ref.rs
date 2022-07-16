@@ -68,15 +68,6 @@ impl<I, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> {
     self.indices.iter()
   }
 
-  /// Returns an iterator over the sparse set's indices and values as pairs.
-  ///
-  /// Do not rely on the order being consistent across insertions and removals.
-  ///
-  /// Consuming the iterator is an *O*(*n*) operation.
-  pub fn iter(&self) -> impl Iterator<Item = (&I, &T)> {
-    self.indices.iter().zip(self.dense.iter())
-  }
-
   /// Returns `true` if the sparse set contains no elements.
   #[must_use]
   pub fn is_empty(&self) -> bool {
@@ -136,6 +127,15 @@ impl<I: SparseSetIndex, T: 'static, M: MemBuilder> AnySparseSetRef<'_, I, T, M> 
       .and_then(Option::as_ref)
       .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
   }
+
+  /// Returns an iterator over the sparse set's indices and values as pairs.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// Consuming the iterator is an *O*(*n*) operation.
+  pub fn iter(&self) -> impl Iterator<Item = (I, &T)> {
+    self.indices.iter().cloned().zip(self.dense.iter())
+  }
 }
 
 impl<'a, I, T, M: MemBuilder> AsRef<AnySparseSetRef<'a, I, T, M>> for AnySparseSetRef<'a, I, T, M> {
@@ -168,7 +168,7 @@ impl<I, T, M: MemBuilder> Deref for AnySparseSetRef<'_, I, T, M> {
   }
 }
 
-impl<I: Debug, T: Debug, M: MemBuilder> Debug for AnySparseSetRef<'_, I, T, M> {
+impl<I: Debug + SparseSetIndex, T: Debug, M: MemBuilder> Debug for AnySparseSetRef<'_, I, T, M> {
   fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
     formatter.debug_map().entries(self.iter()).finish()
   }
@@ -192,7 +192,7 @@ impl<I: SparseSetIndex, T, M: MemBuilder> Index<I> for AnySparseSetRef<'_, I, T,
 }
 
 impl<'a, I: SparseSetIndex, T, M: MemBuilder> IntoIterator for &'a AnySparseSetRef<'_, I, T, M> {
-  type Item = (&'a I, &'a T);
+  type Item = (I, &'a T);
   type IntoIter = impl Iterator<Item = Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
@@ -342,7 +342,7 @@ mod test {
       .downcast_ref::<usize>()
       .unwrap()
       .iter()
-      .eq([(&0, &1), (&1, &2), (&2, &3)]));
+      .eq([(0, &1), (1, &2), (2, &3)]));
   }
 
   #[test]
@@ -571,7 +571,7 @@ mod test {
     set.insert(2, AnyValueWrapper::new(3usize));
     assert!((&set.downcast_ref::<usize>().unwrap())
       .into_iter()
-      .eq([(&0, &1), (&1, &2), (&2, &3)]));
+      .eq([(0, &1), (1, &2), (2, &3)]));
   }
 
   #[test]

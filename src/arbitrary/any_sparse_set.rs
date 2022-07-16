@@ -18,12 +18,12 @@ use crate::{
 
 /// Wrapper around an `AnySparseSet` to enable an `Arbitrary` implementation.
 #[derive(Debug)]
-pub struct AnySparseSetWrapper<I, T, Traits: ?Sized + Trait = dyn None> {
+pub struct AnySparseSetWrapper<I: SparseSetIndex, T, Traits: ?Sized + Trait = dyn None> {
   set: AnySparseSet<I, Traits>,
   _marker: PhantomData<T>,
 }
 
-impl<I, T, Traits: ?Sized + Trait> Deref for AnySparseSetWrapper<I, T, Traits> {
+impl<I: SparseSetIndex, T, Traits: ?Sized + Trait> Deref for AnySparseSetWrapper<I, T, Traits> {
   type Target = AnySparseSet<I, Traits>;
 
   fn deref(&self) -> &Self::Target {
@@ -31,7 +31,7 @@ impl<I, T, Traits: ?Sized + Trait> Deref for AnySparseSetWrapper<I, T, Traits> {
   }
 }
 
-impl<I, T, Traits: ?Sized + Trait> DerefMut for AnySparseSetWrapper<I, T, Traits> {
+impl<I: SparseSetIndex, T, Traits: ?Sized + Trait> DerefMut for AnySparseSetWrapper<I, T, Traits> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.set
   }
