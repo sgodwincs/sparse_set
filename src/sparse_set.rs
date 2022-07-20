@@ -395,6 +395,31 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
     self.sparse.len()
   }
 
+  /// Clears the sparse set, returning all `(index, value)` pairs as an iterator.
+  ///
+  /// The allocated memory is kept for reuse.
+  ///
+  /// If the returned iterator is dropped before fully consumed, it drops the remaining `(index, value)` pairs. The
+  /// returned iterator keeps a mutable borrow on the sparse set to optimize its implementation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(2, 3);
+  ///
+  /// assert!(set.drain().eq([(0, 1), (1, 2), (2, 3)]));
+  /// ```
+  pub fn drain(&mut self) -> impl Iterator<Item = (I, T)> + '_ {
+    self.sparse.clear();
+    self.indices.drain(..).zip(self.dense.drain(..))
+  }
+
   /// Reserves capacity for at least `additional` more elements to be inserted in the given `SparseSet<I, T>`'s dense
   /// buffer.
   ///
@@ -1382,6 +1407,17 @@ mod test {
     assert!(set.contains(0));
     let _ = set.remove(0);
     assert!(!set.contains(0));
+  }
+
+  #[test]
+  fn test_drain() {
+    let mut set = SparseSet::new();
+    set.insert(0, 1);
+    set.insert(1, 2);
+    set.insert(2, 3);
+
+    assert!(set.drain().eq([(0, 1), (1, 2), (2, 3)]));
+    assert!(set.is_empty());
   }
 
   #[test]

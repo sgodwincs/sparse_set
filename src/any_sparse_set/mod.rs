@@ -21,7 +21,7 @@ pub use any_vec::{
 };
 use any_vec::{
   any_value::{AnyValue, AnyValueWrapper},
-  element::{ElementMut, ElementRef},
+  element::{Element, ElementMut, ElementRef},
   mem::{Heap, MemBuilder, MemBuilderSizeable, MemResizable},
   ops::SwapRemove,
   traits::{Cloneable, None, Trait},
@@ -380,6 +380,31 @@ impl<I, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M: MemBuilder>
       indices: &mut self.indices,
       sparse: &mut self.sparse,
     }
+  }
+
+  /// Clears the sparse set, returning all `(index, value)` pairs as an iterator.
+  ///
+  /// The allocated memory is kept for reuse.
+  ///
+  /// If the returned iterator is dropped before fully consumed, it drops the remaining `(index, value)` pairs. The
+  /// returned iterator keeps a mutable borrow on the sparse set to optimize its implementation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet};
+  /// #
+  /// let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+  ///
+  /// set.insert(0, AnyValueWrapper::new(1usize));
+  /// set.insert(1, AnyValueWrapper::new(2usize));
+  /// set.insert(2, AnyValueWrapper::new(3usize));
+  ///
+  /// assert!(set.drain().map(|(i, v)| (i, *v.downcast_ref::<usize>().unwrap())).eq([(0, 1), (1, 2), (2, 3)]));
+  /// ```
+  pub fn drain(&mut self) -> impl Iterator<Item = (I, Element<'_, Traits, M>)> {
+    self.sparse.clear();
+    self.indices.drain(..).zip(self.dense.drain(..))
   }
 
   /// Returns the memory [`Layout`] of the elements stored in the sparse set.
@@ -1382,6 +1407,20 @@ mod test {
       set.get(1).map(|v| v.downcast_ref::<usize>().unwrap()),
       Some(&2)
     );
+  }
+
+  #[test]
+  fn test_drain() {
+    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+    set.insert(0, AnyValueWrapper::new(1usize));
+    set.insert(1, AnyValueWrapper::new(2usize));
+    set.insert(2, AnyValueWrapper::new(3usize));
+
+    assert!(set
+      .drain()
+      .map(|(i, v)| (i, *v.downcast_ref::<usize>().unwrap()))
+      .eq([(0, 1), (1, 2), (2, 3)]));
+    assert!(set.is_empty())
   }
 
   #[test]

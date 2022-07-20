@@ -36,8 +36,8 @@ pub struct AnySparseSetMut<
   pub(in crate::any_sparse_set) indices: &'a mut Vec<I, IA>,
 }
 
-impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
-  AnySparseSetMut<'_, I, T, SA, IA, M>
+impl<'a, I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
+  AnySparseSetMut<'a, I, T, SA, IA, M>
 {
   /// Returns a reference to the underlying indices buffer allocator.
   #[must_use]
@@ -116,6 +116,17 @@ impl<I, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
   #[must_use]
   pub fn sparse_len(&self) -> usize {
     self.sparse.len()
+  }
+
+  /// Clears the sparse set, returning all `(index, value)` pairs as an iterator.
+  ///
+  /// The allocated memory is kept for reuse.
+  ///
+  /// If the returned iterator is dropped before fully consumed, it drops the remaining `(index, value)` pairs. The
+  /// returned iterator keeps a mutable borrow on the sparse set to optimize its implementation.
+  pub fn drain<'b: 'a>(&'b mut self) -> impl Iterator<Item = (I, T)> + 'b {
+    self.sparse.clear();
+    self.indices.drain(..).zip(self.dense.drain(..))
   }
 
   /// Reserves capacity for at least `additional` more elements to be inserted in the given `AnySparseSet<I, T>`'s dense
@@ -685,6 +696,21 @@ mod test {
     set.insert(1, AnyValueWrapper::new(2usize));
     set.insert(2, AnyValueWrapper::new(3usize));
     set.downcast_mut::<usize>().unwrap().clear();
+
+    assert!(set.is_empty());
+  }
+
+  #[test]
+  fn test_drain() {
+    let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
+    set.insert(0, AnyValueWrapper::new(1usize));
+    set.insert(1, AnyValueWrapper::new(2usize));
+    set.insert(2, AnyValueWrapper::new(3usize));
+    assert!(set
+      .downcast_mut::<usize>()
+      .unwrap()
+      .drain()
+      .eq([(0, 1), (1, 2), (2, 3)]));
 
     assert!(set.is_empty());
   }
