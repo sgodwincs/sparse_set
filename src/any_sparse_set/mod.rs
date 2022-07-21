@@ -1017,7 +1017,7 @@ impl<I: SparseSetIndex, Traits: ?Sized + Trait, SA: Allocator, IA: Allocator, M:
       None => {
         self.dense.push(value);
         self.indices.push(index);
-        self.sparse.insert(index, unsafe {
+        let _ = self.sparse.insert(index, unsafe {
           NonZeroUsize::new_unchecked(self.dense_len())
         });
       }

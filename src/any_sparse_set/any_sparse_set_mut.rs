@@ -372,11 +372,11 @@ impl<I: SparseSetIndex, T: 'static, SA: Allocator, IA: Allocator, M: MemBuilder>
         self.dense.insert(dense_index, value);
       }
       None => {
-        self.sparse.insert(index, unsafe {
-          NonZeroUsize::new_unchecked(self.dense_len() + 1)
-        });
         self.dense.push(value);
         self.indices.push(index);
+        let _ = self.sparse.insert(index, unsafe {
+          NonZeroUsize::new_unchecked(self.dense_len())
+        });
       }
     }
   }
