@@ -11,6 +11,7 @@ use std::{
   collections::TryReserveError,
   fmt::{self, Debug, Formatter},
   hash::{Hash, Hasher},
+  mem::{self},
   num::NonZeroUsize,
   ops::{Deref, DerefMut, Index, IndexMut},
 };
@@ -999,7 +1000,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
 
   /// Inserts an element at position `index` within the sparse set.
   ///
-  /// If a value already existed at `index`, it will be overwritten.
+  /// If a value already existed at `index`, it will be replaced and returned.
   ///
   /// If `index` is greater than `sparse_capacity`, then an allocation will take place.
   ///
@@ -1022,18 +1023,22 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// assert!(set.values().eq(&[1, 4, 2, 3, 5]));
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn insert(&mut self, index: I, value: T) {
+  pub fn insert(&mut self, index: I, mut value: T) -> Option<T> {
     match self.sparse.get(index) {
       Some(dense_index) => {
         let dense_index = dense_index.get() - 1;
-        *unsafe { self.dense.get_unchecked_mut(dense_index) } = value;
+        mem::swap(&mut value, unsafe {
+          self.dense.get_unchecked_mut(dense_index)
+        });
+        Some(value)
       }
       None => {
         self.dense.push(value);
         self.indices.push(index);
-        self.sparse.insert(index, unsafe {
+        let _ = self.sparse.insert(index, unsafe {
           NonZeroUsize::new_unchecked(self.dense_len())
         });
+        None
       }
     }
   }
@@ -1134,7 +1139,7 @@ impl<'a, I: SparseSetIndex, T: Copy + 'a, SA: Allocator + 'a, DA: Allocator + 'a
 {
   fn extend<Iter: IntoIterator<Item = (I, &'a T)>>(&mut self, iter: Iter) {
     for (index, &value) in iter {
-      self.insert(index, value);
+      let _ = self.insert(index, value);
     }
   }
 }
@@ -1145,7 +1150,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Extend<(I, T)>
 {
   fn extend<Iter: IntoIterator<Item = (I, T)>>(&mut self, iter: Iter) {
     for (index, value) in iter {
-      self.insert(index, value);
+      let _ = self.insert(index, value);
     }
   }
 }
@@ -1156,7 +1161,7 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseSet<I, T>
     let mut set = Self::with_capacity(slice.len(), slice.len());
 
     for (index, value) in slice {
-      set.insert(index, value);
+      let _ = set.insert(index, value);
     }
 
     set
@@ -1174,7 +1179,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
     let mut set = Self::with_capacity(capacity, capacity);
 
     for (index, value) in iter {
-      set.insert(index, value);
+      let _ = set.insert(index, value);
     }
 
     set
@@ -1349,14 +1354,14 @@ mod test {
   #[test]
   fn test_as_dense_slice() {
     let mut set: SparseSet<usize, usize> = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.as_dense_slice(), &[1]);
   }
 
   #[test]
   fn test_as_dense_mut_slice() {
     let mut set: SparseSet<usize, usize> = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.as_dense_mut_slice(), &mut [1]);
   }
 
@@ -1378,7 +1383,7 @@ mod test {
   #[test]
   fn test_as_indices_slice() {
     let mut set: SparseSet<usize, usize> = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.as_indices_slice(), &[0]);
   }
 
@@ -1391,9 +1396,9 @@ mod test {
   #[test]
   fn test_clear() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     set.clear();
 
     assert!(set.is_empty());
@@ -1403,7 +1408,7 @@ mod test {
   fn test_contains() {
     let mut set = SparseSet::new();
     assert!(!set.contains(0));
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert!(set.contains(0));
     let _ = set.remove(0);
     assert!(!set.contains(0));
@@ -1412,9 +1417,9 @@ mod test {
   #[test]
   fn test_drain() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert!(set.drain().eq([(0, 1), (1, 2), (2, 3)]));
     assert!(set.is_empty());
@@ -1423,9 +1428,9 @@ mod test {
   #[test]
   fn test_get() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert_eq!(set.get(0), Some(&1));
     assert_eq!(set.get(2), Some(&3));
@@ -1435,9 +1440,9 @@ mod test {
   #[test]
   fn test_get_mut() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let value = set.get_mut(2);
     assert_eq!(value, Some(&mut 3));
@@ -1451,20 +1456,20 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.indices().eq([]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.indices().eq([0, 1, 2]));
   }
 
   #[test]
   fn test_insert_capacity_increases() {
     let mut set = SparseSet::with_capacity(1, 1);
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.sparse_capacity(), 1);
     assert_eq!(set.dense_capacity(), 1);
 
-    set.insert(1, 2);
+    let _ = set.insert(1, 2);
     assert!(set.sparse_capacity() >= 2);
     assert!(set.dense_capacity() >= 2);
 
@@ -1475,15 +1480,15 @@ mod test {
   #[test]
   fn test_insert_len_increases() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.dense_len(), 1);
     assert_eq!(set.sparse_len(), 1);
 
-    set.insert(1, 2);
+    let _ = set.insert(1, 2);
     assert_eq!(set.dense_len(), 2);
     assert_eq!(set.sparse_len(), 2);
 
-    set.insert(100, 101);
+    let _ = set.insert(100, 101);
     assert_eq!(set.dense_len(), 3);
     assert_eq!(set.sparse_len(), 101);
   }
@@ -1491,10 +1496,10 @@ mod test {
   #[test]
   fn test_insert_overwrites() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.get(0), Some(&1));
 
-    set.insert(0, 2);
+    let _ = set.insert(0, 2);
     assert_eq!(set.get(0), Some(&2));
   }
 
@@ -1503,9 +1508,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.iter().eq([]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.iter().eq([(0, &1), (1, &2), (2, &3)]));
   }
 
@@ -1514,9 +1519,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.iter_mut().eq([]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.iter_mut().eq([(0, &mut 1), (1, &mut 2), (2, &mut 3)]));
 
     let value = set.iter_mut().next().unwrap();
@@ -1530,7 +1535,7 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.is_empty());
 
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert!(!set.is_empty());
 
     let _ = set.remove(0);
@@ -1542,7 +1547,7 @@ mod test {
     let mut set = SparseSet::new();
     assert_eq!(set.dense_len(), 0);
 
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.dense_len(), 1);
   }
 
@@ -1551,17 +1556,17 @@ mod test {
     let mut set = SparseSet::new();
     assert_eq!(set.sparse_len(), 0);
 
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.sparse_len(), 1);
 
-    set.insert(100, 1);
+    let _ = set.insert(100, 1);
     assert_eq!(set.sparse_len(), 101);
   }
 
   #[test]
   fn test_remove_can_return_none() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.remove(1), None);
     assert_eq!(set.remove(100), None);
   }
@@ -1569,15 +1574,15 @@ mod test {
   #[test]
   fn test_remove_can_return_some() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.remove(0), Some(1));
   }
 
   #[test]
   fn test_remove_len_decreases() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     assert_eq!(set.dense_len(), 2);
     assert_eq!(set.sparse_len(), 2);
@@ -1592,9 +1597,9 @@ mod test {
   #[test]
   fn test_remove_swaps_with_last() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert!(set.values().eq(&[1, 2, 3]));
 
@@ -1611,8 +1616,8 @@ mod test {
     let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     set.reserve_dense(1);
     assert_eq!(set.dense_capacity(), capacity);
@@ -1627,8 +1632,8 @@ mod test {
     let capacity = set.sparse_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     set.reserve_sparse(1);
     assert_eq!(set.sparse_capacity(), capacity);
@@ -1643,8 +1648,8 @@ mod test {
     let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     set.reserve_exact_dense(1);
     assert_eq!(set.dense_capacity(), capacity);
@@ -1659,8 +1664,8 @@ mod test {
     let capacity = set.sparse_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     set.reserve_exact_sparse(1);
     assert_eq!(set.sparse_capacity(), capacity);
@@ -1669,9 +1674,9 @@ mod test {
   #[test]
   fn test_shrink_to_fit_dense() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert_eq!(set.dense_capacity(), 3);
     let _ = set.remove(2);
@@ -1682,9 +1687,9 @@ mod test {
   #[test]
   fn test_shrink_to_fit_sparse() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert_eq!(set.sparse_capacity(), 3);
     assert_eq!(set.sparse_len(), 3);
@@ -1707,7 +1712,7 @@ mod test {
   #[test]
   fn test_shrink_to_dense_can_reduce() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.dense_capacity(), 3);
     set.shrink_to_dense(1);
     assert_eq!(set.dense_capacity(), 1);
@@ -1716,9 +1721,9 @@ mod test {
   #[test]
   fn test_shrink_to_dense_cannot_reduce() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert_eq!(set.dense_capacity(), 3);
     set.shrink_to_dense(0);
     assert_eq!(set.dense_capacity(), 3);
@@ -1727,7 +1732,7 @@ mod test {
   #[test]
   fn test_shrink_to_sparse_can_reduce() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
     assert_eq!(set.sparse_capacity(), 3);
     assert_eq!(set.sparse_len(), 1);
     set.shrink_to_sparse(1);
@@ -1738,9 +1743,9 @@ mod test {
   #[test]
   fn test_shrink_to_sparse_cannot_reduce() {
     let mut set = SparseSet::with_capacity(3, 3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert_eq!(set.sparse_capacity(), 3);
     assert_eq!(set.sparse_len(), 3);
     set.shrink_to_sparse(0);
@@ -1767,8 +1772,8 @@ mod test {
     let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     assert!(set.try_reserve_dense(1).is_ok());
     assert_eq!(set.dense_capacity(), capacity);
@@ -1783,8 +1788,8 @@ mod test {
     let capacity = set.sparse_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     assert!(set.try_reserve_sparse(1).is_ok());
     assert_eq!(set.sparse_capacity(), capacity);
@@ -1799,8 +1804,8 @@ mod test {
     let capacity = set.dense_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     assert!(set.try_reserve_exact_dense(1).is_ok());
     assert_eq!(set.dense_capacity(), capacity);
@@ -1815,8 +1820,8 @@ mod test {
     let capacity = set.sparse_capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
 
     assert!(set.try_reserve_exact_sparse(1).is_ok());
     assert_eq!(set.sparse_capacity(), capacity);
@@ -1827,9 +1832,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.values().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.values().eq(&[1, 2, 3]));
   }
 
@@ -1838,9 +1843,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!(set.values_mut().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.values_mut().eq(&[1, 2, 3]));
 
     let value = set.values_mut().next().unwrap();
@@ -1852,9 +1857,9 @@ mod test {
   #[test]
   fn test_as_ref() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let reference: &SparseSet<_, _> = set.as_ref();
     assert_eq!(reference.first(), Some(&1));
@@ -1866,9 +1871,9 @@ mod test {
   #[test]
   fn test_as_mut() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let reference: &mut SparseSet<_, _> = set.as_mut();
     assert_eq!(reference.first(), Some(&1));
@@ -1880,9 +1885,9 @@ mod test {
   #[test]
   fn test_clone() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let cloned_set = set.clone();
     assert_eq!(set, cloned_set);
@@ -1904,9 +1909,9 @@ mod test {
     {
       let mut set = SparseSet::new();
       let value = Value(num_dropped.clone());
-      set.insert(0, value.clone());
-      set.insert(1, value.clone());
-      set.insert(2, value);
+      let _ = set.insert(0, value.clone());
+      let _ = set.insert(1, value.clone());
+      let _ = set.insert(2, value);
 
       let _cloned_set = set.clone();
     }
@@ -1919,9 +1924,9 @@ mod test {
     let mut set = SparseSet::new();
     assert_eq!(format!("{:?}", set), "{}");
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert_eq!(format!("{:?}", set), "{0: 1, 1: 2, 2: 3}");
   }
 
@@ -1936,7 +1941,7 @@ mod test {
   #[test]
   fn test_deref() {
     let mut set: SparseSet<usize, usize> = SparseSet::default();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
 
     assert_eq!(&*set, &[1]);
   }
@@ -1944,7 +1949,7 @@ mod test {
   #[test]
   fn test_deref_mut() {
     let mut set: SparseSet<usize, usize> = SparseSet::default();
-    set.insert(0, 1);
+    let _ = set.insert(0, 1);
 
     assert_eq!(&mut *set, &mut [1]);
   }
@@ -1956,9 +1961,9 @@ mod test {
     {
       let mut set = SparseSet::new();
       let value = Value(num_dropped.clone());
-      set.insert(0, value.clone());
-      set.insert(1, value.clone());
-      set.insert(2, value);
+      let _ = set.insert(0, value.clone());
+      let _ = set.insert(1, value.clone());
+      let _ = set.insert(2, value);
     }
 
     assert_eq!(*num_dropped.borrow(), 3);
@@ -2022,21 +2027,21 @@ mod test {
     assert_eq!(set_1, set_2);
     assert_eq!(hash(&set_1), hash(&set_2));
 
-    set_1.insert(0, 1);
+    let _ = set_1.insert(0, 1);
 
     assert_ne!(set_1, set_2);
 
-    set_2.insert(0, 2);
+    let _ = set_2.insert(0, 2);
 
     assert_ne!(set_1, set_2);
 
     let _ = set_2.remove(0);
-    set_2.insert(1, 2);
+    let _ = set_2.insert(1, 2);
 
     assert_ne!(set_1, set_2);
 
-    set_1.insert(1, 2);
-    set_2.insert(0, 1);
+    let _ = set_1.insert(1, 2);
+    let _ = set_2.insert(0, 1);
 
     assert_eq!(set_1, set_2);
     assert_eq!(hash(&set_1), hash(&set_2));
@@ -2051,9 +2056,9 @@ mod test {
   #[test]
   fn test_index() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     assert_eq!(set[0], 1);
     assert_eq!(set[2], 3);
@@ -2063,9 +2068,9 @@ mod test {
   #[test]
   fn test_index_panics() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let _ = &set[100];
   }
@@ -2073,9 +2078,9 @@ mod test {
   #[test]
   fn test_index_mut() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let value = &mut set[2];
     assert_eq!(value, &mut 3);
@@ -2088,9 +2093,9 @@ mod test {
   #[test]
   fn test_index_mut_panics() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
 
     let _ = &mut set[100];
   }
@@ -2098,9 +2103,9 @@ mod test {
   #[test]
   fn test_into_iterator() {
     let mut set = SparseSet::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!(set.into_iter().eq([(0, 1), (1, 2), (2, 3)]));
   }
 
@@ -2109,9 +2114,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!((&set).into_iter().eq([]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!((&set).into_iter().eq([(0, &1), (1, &2), (2, &3)]));
   }
 
@@ -2120,9 +2125,9 @@ mod test {
     let mut set = SparseSet::new();
     assert!((&mut set).into_iter().eq([]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
     assert!((&mut set)
       .into_iter()
       .eq([(0, &mut 1), (1, &mut 2), (2, &mut 3)]));
@@ -2140,22 +2145,21 @@ mod test {
 
     assert_eq!(set_1, set_2);
 
-    set_1.insert(0, 1);
+    let _ = set_1.insert(0, 1);
 
     assert_ne!(set_1, set_2);
 
-    set_2.insert(0, 2);
+    let _ = set_2.insert(0, 2);
 
     assert_ne!(set_1, set_2);
 
     let _ = set_2.remove(0);
-    set_2.insert(1, 2);
+    let _ = set_2.insert(1, 2);
 
     assert_ne!(set_1, set_2);
 
-    set_1.insert(1, 2);
-
-    set_2.insert(0, 1);
+    let _ = set_1.insert(1, 2);
+    let _ = set_2.insert(0, 1);
 
     assert_eq!(set_1, set_2);
 

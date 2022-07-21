@@ -612,7 +612,7 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
 
   /// Inserts an element at position `index` within the sparse vec.
   ///
-  /// If a value already existed at `index`, it will be overwritten.
+  /// If a value already existed at `index`, it will be replaced and returned.
   ///
   /// If `index` is greater than `capacity`, then an allocation will take place.
   ///
@@ -635,14 +635,14 @@ impl<I: SparseSetIndex, T, A: Allocator> SparseVec<I, T, A> {
   /// assert!(vec.iter().eq(&[Some(1), Some(4), Some(2), Some(3), None, Some(5)]));
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn insert(&mut self, index: I, value: T) {
+  pub fn insert(&mut self, index: I, value: T) -> Option<T> {
     let index = index.into();
 
     if index >= self.len() {
       self.values.resize_with(index + 1, || None);
     }
 
-    *unsafe { self.values.get_unchecked_mut(index) } = Some(value);
+    unsafe { self.values.get_unchecked_mut(index) }.replace(value)
   }
 
   /// Removes and returns the element at position `index` within the sparse vec, if it exists.
@@ -735,7 +735,7 @@ impl<'a, I: SparseSetIndex, T: Copy + 'a, A: Allocator + 'a> Extend<(I, &'a T)>
 {
   fn extend<Iter: IntoIterator<Item = (I, &'a T)>>(&mut self, iter: Iter) {
     for (index, &value) in iter {
-      self.insert(index, value);
+      let _ = self.insert(index, value);
     }
   }
 }
@@ -744,7 +744,7 @@ impl<'a, I: SparseSetIndex, T: Copy + 'a, A: Allocator + 'a> Extend<(I, &'a T)>
 impl<I: SparseSetIndex, T, A: Allocator> Extend<(I, T)> for SparseVec<I, T, A> {
   fn extend<Iter: IntoIterator<Item = (I, T)>>(&mut self, iter: Iter) {
     for (index, value) in iter {
-      self.insert(index, value);
+      let _ = self.insert(index, value);
     }
   }
 }
@@ -755,7 +755,7 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseVec<I, T>
     let mut vec = Self::with_capacity(slice.len());
 
     for (index, value) in slice {
-      vec.insert(index, value);
+      let _ = vec.insert(index, value);
     }
 
     vec
@@ -773,7 +773,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseVec<I, T> {
     let mut vec = Self::with_capacity(capacity);
 
     for (index, value) in iter {
-      vec.insert(index, value);
+      let _ = vec.insert(index, value);
     }
 
     vec
@@ -855,21 +855,21 @@ mod test {
 
   #[test]
   fn test_new() {
-    let set: SparseVec<usize, usize> = SparseVec::new();
-    assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
+    let vec: SparseVec<usize, usize> = SparseVec::new();
+    assert!(vec.is_empty());
+    assert_eq!(vec.capacity(), 0);
   }
 
   #[test]
   fn test_with_capacity() {
-    let set: SparseVec<usize, usize> = SparseVec::with_capacity(10);
-    assert_eq!(set.capacity(), 10);
+    let vec: SparseVec<usize, usize> = SparseVec::with_capacity(10);
+    assert_eq!(vec.capacity(), 10);
   }
 
   #[test]
   fn test_with_capacity_zero() {
-    let set: SparseVec<usize, usize> = SparseVec::with_capacity(0);
-    assert_eq!(set.capacity(), 0);
+    let vec: SparseVec<usize, usize> = SparseVec::with_capacity(0);
+    assert_eq!(vec.capacity(), 0);
   }
 
   #[should_panic]
@@ -880,359 +880,361 @@ mod test {
 
   #[test]
   fn test_allocator() {
-    let set: SparseVec<usize, usize> = SparseVec::new();
-    let _ = set.allocator();
+    let vec: SparseVec<usize, usize> = SparseVec::new();
+    let _ = vec.allocator();
   }
 
   #[test]
   fn test_as_slice() {
-    let mut set: SparseVec<usize, usize> = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.as_slice(), &[Some(1)]);
+    let mut vec: SparseVec<usize, usize> = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.as_slice(), &[Some(1)]);
   }
 
   #[test]
   fn test_as_mut_slice() {
-    let mut set: SparseVec<usize, usize> = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.as_mut_slice(), &mut [Some(1)]);
+    let mut vec: SparseVec<usize, usize> = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.as_mut_slice(), &mut [Some(1)]);
   }
 
   #[test]
   fn test_as_ptr() {
-    let set: SparseVec<usize, usize> = SparseVec::with_capacity(10);
-    assert_eq!(set.as_ptr(), set.as_slice().as_ptr());
+    let vec: SparseVec<usize, usize> = SparseVec::with_capacity(10);
+    assert_eq!(vec.as_ptr(), vec.as_slice().as_ptr());
   }
 
   #[test]
   fn test_as_mut_ptr() {
-    let mut set: SparseVec<usize, usize> = SparseVec::with_capacity(10);
-    assert_eq!(set.as_mut_ptr(), set.as_mut_slice().as_mut_ptr());
+    let mut vec: SparseVec<usize, usize> = SparseVec::with_capacity(10);
+    assert_eq!(vec.as_mut_ptr(), vec.as_mut_slice().as_mut_ptr());
   }
 
   #[test]
   fn test_clear() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    set.clear();
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    vec.clear();
 
-    assert!(set.is_empty());
+    assert!(vec.is_empty());
   }
 
   #[test]
   fn test_contains() {
-    let mut set = SparseVec::new();
-    assert!(!set.contains(0));
-    set.insert(0, 1);
-    assert!(set.contains(0));
-    let _ = set.remove(0);
-    assert!(!set.contains(0));
+    let mut vec = SparseVec::new();
+    assert!(!vec.contains(0));
+    let _ = vec.insert(0, 1);
+    assert!(vec.contains(0));
+    let _ = vec.remove(0);
+    assert!(!vec.contains(0));
   }
 
   #[test]
   fn test_get() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    assert_eq!(set.get(0), Some(&1));
-    assert_eq!(set.get(2), Some(&3));
-    assert_eq!(set.get(100), None);
+    assert_eq!(vec.get(0), Some(&1));
+    assert_eq!(vec.get(2), Some(&3));
+    assert_eq!(vec.get(100), None);
   }
 
   #[test]
   fn test_get_mut() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let value = set.get_mut(2);
+    let value = vec.get_mut(2);
     assert_eq!(value, Some(&mut 3));
     *value.unwrap() = 10;
 
-    assert_eq!(set.get(2), Some(&10));
+    assert_eq!(vec.get(2), Some(&10));
   }
 
   #[test]
   fn test_insert_capacity_increases() {
-    let mut set = SparseVec::with_capacity(1);
-    set.insert(0, 1);
-    assert_eq!(set.capacity(), 1);
+    let mut vec = SparseVec::with_capacity(1);
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.capacity(), 1);
 
-    set.insert(1, 2);
-    assert!(set.capacity() >= 2);
+    let _ = vec.insert(1, 2);
+    assert!(vec.capacity() >= 2);
 
-    assert_eq!(set.get(0), Some(&1));
-    assert_eq!(set.get(1), Some(&2));
+    assert_eq!(vec.get(0), Some(&1));
+    assert_eq!(vec.get(1), Some(&2));
   }
 
   #[test]
   fn test_insert_len_increases() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.len(), 1);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.len(), 1);
 
-    set.insert(1, 2);
-    assert_eq!(set.len(), 2);
+    let _ = vec.insert(1, 2);
+    assert_eq!(vec.len(), 2);
 
-    set.insert(100, 101);
-    assert_eq!(set.len(), 101);
+    let _ = vec.insert(100, 101);
+    assert_eq!(vec.len(), 101);
   }
 
   #[test]
   fn test_insert_overwrites() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.get(0), Some(&1));
+    let mut vec = SparseVec::new();
+    let value = vec.insert(0, 1);
+    assert!(value.is_none());
+    assert_eq!(vec.get(0), Some(&1));
 
-    set.insert(0, 2);
-    assert_eq!(set.get(0), Some(&2));
+    let value = vec.insert(0, 2);
+    assert_eq!(value, Some(1));
+    assert_eq!(vec.get(0), Some(&2));
   }
 
   #[test]
   fn test_is_empty() {
-    let mut set = SparseVec::new();
-    assert!(set.is_empty());
+    let mut vec = SparseVec::new();
+    assert!(vec.is_empty());
 
-    set.insert(0, 1);
-    assert!(!set.is_empty());
+    let _ = vec.insert(0, 1);
+    assert!(!vec.is_empty());
 
-    let _ = set.remove(0);
-    set.shrink_to_fit();
-    assert!(set.is_empty());
+    let _ = vec.remove(0);
+    vec.shrink_to_fit();
+    assert!(vec.is_empty());
   }
 
   #[test]
   fn test_len() {
-    let mut set = SparseVec::new();
-    assert_eq!(set.len(), 0);
+    let mut vec = SparseVec::new();
+    assert_eq!(vec.len(), 0);
 
-    set.insert(0, 1);
-    assert_eq!(set.len(), 1);
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.len(), 1);
   }
 
   #[test]
   fn test_remove_can_return_none() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.remove(1), None);
-    assert_eq!(set.remove(100), None);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.remove(1), None);
+    assert_eq!(vec.remove(100), None);
   }
 
   #[test]
   fn test_remove_can_return_some() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    assert_eq!(set.remove(0), Some(1));
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.remove(0), Some(1));
   }
 
   #[test]
   fn test_remove_len_cannot_decreases() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
 
-    assert_eq!(set.len(), 2);
-    assert_eq!(set.remove(0), Some(1));
-    assert_eq!(set.len(), 2);
-    assert_eq!(set.remove(0), None);
-    assert_eq!(set.len(), 2);
+    assert_eq!(vec.len(), 2);
+    assert_eq!(vec.remove(0), Some(1));
+    assert_eq!(vec.len(), 2);
+    assert_eq!(vec.remove(0), None);
+    assert_eq!(vec.len(), 2);
   }
 
   #[test]
   fn test_reserve() {
-    let mut set = SparseVec::new();
-    assert_eq!(set.capacity(), 0);
+    let mut vec = SparseVec::new();
+    assert_eq!(vec.capacity(), 0);
 
-    set.reserve(3);
-    let capacity = set.capacity();
+    vec.reserve(3);
+    let capacity = vec.capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
 
-    set.reserve(1);
-    assert_eq!(set.capacity(), capacity);
+    vec.reserve(1);
+    assert_eq!(vec.capacity(), capacity);
   }
 
   #[test]
   fn test_reserve_exact() {
-    let mut set = SparseVec::new();
-    assert_eq!(set.capacity(), 0);
+    let mut vec = SparseVec::new();
+    assert_eq!(vec.capacity(), 0);
 
-    set.reserve_exact(3);
-    let capacity = set.capacity();
+    vec.reserve_exact(3);
+    let capacity = vec.capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
 
-    set.reserve_exact(1);
-    assert_eq!(set.capacity(), capacity);
+    vec.reserve_exact(1);
+    assert_eq!(vec.capacity(), capacity);
   }
 
   #[test]
   fn test_shrink_to_fit() {
-    let mut set = SparseVec::with_capacity(3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::with_capacity(3);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    assert_eq!(set.capacity(), 3);
-    let _ = set.remove(2);
-    set.shrink_to_fit();
-    assert_eq!(set.capacity(), 2);
+    assert_eq!(vec.capacity(), 3);
+    let _ = vec.remove(2);
+    vec.shrink_to_fit();
+    assert_eq!(vec.capacity(), 2);
   }
 
   #[test]
   fn test_shrink_to_fit_max_index_zero() {
-    let mut set: SparseVec<usize, usize> = SparseVec::with_capacity(3);
-    assert_eq!(set.capacity(), 3);
-    assert_eq!(set.len(), 0);
-    set.shrink_to_fit();
-    assert_eq!(set.capacity(), 0);
-    assert_eq!(set.len(), 0);
+    let mut vec: SparseVec<usize, usize> = SparseVec::with_capacity(3);
+    assert_eq!(vec.capacity(), 3);
+    assert_eq!(vec.len(), 0);
+    vec.shrink_to_fit();
+    assert_eq!(vec.capacity(), 0);
+    assert_eq!(vec.len(), 0);
   }
 
   #[test]
   fn test_shrink_to_can_reduce() {
-    let mut set = SparseVec::with_capacity(3);
-    set.insert(0, 1);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(1);
-    assert_eq!(set.capacity(), 1);
+    let mut vec = SparseVec::with_capacity(3);
+    let _ = vec.insert(0, 1);
+    assert_eq!(vec.capacity(), 3);
+    vec.shrink_to(1);
+    assert_eq!(vec.capacity(), 1);
   }
 
   #[test]
   fn test_shrink_to_cannot_reduce() {
-    let mut set = SparseVec::with_capacity(3);
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert_eq!(set.capacity(), 3);
-    set.shrink_to(0);
-    assert_eq!(set.capacity(), 3);
+    let mut vec = SparseVec::with_capacity(3);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert_eq!(vec.capacity(), 3);
+    vec.shrink_to(0);
+    assert_eq!(vec.capacity(), 3);
   }
 
   #[test]
   fn test_shrink_to_max_index_zero() {
-    let mut set: SparseVec<usize, usize> = SparseVec::with_capacity(3);
-    assert_eq!(set.capacity(), 3);
-    assert_eq!(set.len(), 0);
-    set.shrink_to(0);
-    assert_eq!(set.capacity(), 0);
-    assert_eq!(set.len(), 0);
+    let mut vec: SparseVec<usize, usize> = SparseVec::with_capacity(3);
+    assert_eq!(vec.capacity(), 3);
+    assert_eq!(vec.len(), 0);
+    vec.shrink_to(0);
+    assert_eq!(vec.capacity(), 0);
+    assert_eq!(vec.len(), 0);
   }
 
   #[test]
   fn test_try_reserve_succeeds() {
-    let mut set = SparseVec::new();
-    assert_eq!(set.capacity(), 0);
+    let mut vec = SparseVec::new();
+    assert_eq!(vec.capacity(), 0);
 
-    assert!(set.try_reserve(3).is_ok());
-    let capacity = set.capacity();
+    assert!(vec.try_reserve(3).is_ok());
+    let capacity = vec.capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
 
-    assert!(set.try_reserve(1).is_ok());
-    assert_eq!(set.capacity(), capacity);
+    assert!(vec.try_reserve(1).is_ok());
+    assert_eq!(vec.capacity(), capacity);
   }
 
   #[test]
   fn test_try_reserve_exact_succeeds() {
-    let mut set = SparseVec::new();
-    assert_eq!(set.capacity(), 0);
+    let mut vec = SparseVec::new();
+    assert_eq!(vec.capacity(), 0);
 
-    assert!(set.try_reserve_exact(3).is_ok());
-    let capacity = set.capacity();
+    assert!(vec.try_reserve_exact(3).is_ok());
+    let capacity = vec.capacity();
     assert!(capacity >= 2);
 
-    set.insert(0, 1);
-    set.insert(1, 2);
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
 
-    assert!(set.try_reserve_exact(1).is_ok());
-    assert_eq!(set.capacity(), capacity);
+    assert!(vec.try_reserve_exact(1).is_ok());
+    assert_eq!(vec.capacity(), capacity);
   }
 
   #[test]
   fn test_values() {
-    let mut set = SparseVec::new();
-    assert!(set.iter().eq(&[]));
+    let mut vec = SparseVec::new();
+    assert!(vec.iter().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert!(set.iter().eq(&[Some(1), Some(2), Some(3)]));
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert!(vec.iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_values_mut() {
-    let mut set = SparseVec::new();
-    assert!(set.iter_mut().eq(&[]));
+    let mut vec = SparseVec::new();
+    assert!(vec.iter_mut().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert!(set.iter_mut().eq(&[Some(1), Some(2), Some(3)]));
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert!(vec.iter_mut().eq(&[Some(1), Some(2), Some(3)]));
 
-    let value = set.iter_mut().next().unwrap();
+    let value = vec.iter_mut().next().unwrap();
     *value = Some(100);
 
-    assert_eq!(set.get(0), Some(&100));
+    assert_eq!(vec.get(0), Some(&100));
   }
 
   #[test]
   fn test_as_ref() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let reference: &SparseVec<_, _> = set.as_ref();
+    let reference: &SparseVec<_, _> = vec.as_ref();
     assert_eq!(reference.get(0), Some(&1));
 
-    let reference: &[Option<usize>] = set.as_ref();
+    let reference: &[Option<usize>] = vec.as_ref();
     assert_eq!(reference.get(0), Some(&Some(1)));
   }
 
   #[test]
   fn test_as_mut() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let reference: &mut SparseVec<_, _> = set.as_mut();
+    let reference: &mut SparseVec<_, _> = vec.as_mut();
     assert_eq!(reference.get(0), Some(&1));
 
-    let reference: &mut [Option<usize>] = set.as_mut();
+    let reference: &mut [Option<usize>] = vec.as_mut();
     assert_eq!(reference.get(0), Some(&Some(1)));
   }
 
   #[test]
   fn test_clone() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let cloned_set = set.clone();
-    assert_eq!(set, cloned_set);
+    let cloned_vec = vec.clone();
+    assert_eq!(vec, cloned_vec);
   }
 
   #[test]
   fn test_clone_zero_capacity() {
-    let set: SparseVec<usize, usize> = SparseVec::new();
-    assert_eq!(set.capacity(), 0);
+    let vec: SparseVec<usize, usize> = SparseVec::new();
+    assert_eq!(vec.capacity(), 0);
 
-    let cloned_set = set.clone();
-    assert_eq!(set, cloned_set);
+    let cloned_vec = vec.clone();
+    assert_eq!(vec, cloned_vec);
   }
 
   #[test]
@@ -1240,13 +1242,13 @@ mod test {
     let num_dropped = Rc::new(RefCell::new(0));
 
     {
-      let mut set = SparseVec::new();
+      let mut vec = SparseVec::new();
       let value = Value(num_dropped.clone());
-      set.insert(0, value.clone());
-      set.insert(1, value.clone());
-      set.insert(2, value);
+      let _ = vec.insert(0, value.clone());
+      let _ = vec.insert(1, value.clone());
+      let _ = vec.insert(2, value);
 
-      let _cloned_set = set.clone();
+      let _cloned_vec = vec.clone();
     }
 
     assert_eq!(*num_dropped.borrow(), 6);
@@ -1254,34 +1256,34 @@ mod test {
 
   #[test]
   fn test_debug() {
-    let mut set = SparseVec::new();
-    assert_eq!(format!("{:?}", set), "[]");
+    let mut vec = SparseVec::new();
+    assert_eq!(format!("{:?}", vec), "[]");
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert_eq!(format!("{:?}", set), "[Some(1), Some(2), Some(3)]");
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert_eq!(format!("{:?}", vec), "[Some(1), Some(2), Some(3)]");
   }
 
   #[test]
   fn test_default() {
-    let set: SparseVec<usize, usize> = SparseVec::default();
-    assert!(set.is_empty());
-    assert_eq!(set.capacity(), 0);
+    let vec: SparseVec<usize, usize> = SparseVec::default();
+    assert!(vec.is_empty());
+    assert_eq!(vec.capacity(), 0);
   }
 
   #[test]
   fn test_deref() {
-    let mut set: SparseVec<usize, usize> = SparseVec::default();
-    set.insert(0, 1);
+    let mut vec: SparseVec<usize, usize> = SparseVec::default();
+    let _ = vec.insert(0, 1);
   }
 
   #[test]
   fn test_deref_mut() {
-    let mut set: SparseVec<usize, usize> = SparseVec::default();
-    set.insert(0, 1);
+    let mut vec: SparseVec<usize, usize> = SparseVec::default();
+    let _ = vec.insert(0, 1);
 
-    assert_eq!(&mut *set, &mut [Some(1)]);
+    assert_eq!(&mut *vec, &mut [Some(1)]);
   }
 
   #[test]
@@ -1289,11 +1291,11 @@ mod test {
     let num_dropped = Rc::new(RefCell::new(0));
 
     {
-      let mut set = SparseVec::new();
+      let mut vec = SparseVec::new();
       let value = Value(num_dropped.clone());
-      set.insert(0, value.clone());
-      set.insert(1, value.clone());
-      set.insert(2, value);
+      let _ = vec.insert(0, value.clone());
+      let _ = vec.insert(1, value.clone());
+      let _ = vec.insert(2, value);
     }
 
     assert_eq!(*num_dropped.borrow(), 3);
@@ -1301,28 +1303,28 @@ mod test {
 
   #[test]
   fn test_extend() {
-    let mut set = SparseVec::new();
-    set.extend([(0, 1), (1, 2), (2, 3)]);
-    assert!(set.iter().eq(&[Some(1), Some(2), Some(3)]));
+    let mut vec = SparseVec::new();
+    vec.extend([(0, 1), (1, 2), (2, 3)]);
+    assert!(vec.iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_extend_ref() {
-    let mut set: SparseVec<usize, usize> = SparseVec::new();
-    set.extend([(0, &1), (1, &2), (2, &3)]);
-    assert!(set.iter().eq(&[Some(1), Some(2), Some(3)]));
+    let mut vec: SparseVec<usize, usize> = SparseVec::new();
+    vec.extend([(0, &1), (1, &2), (2, &3)]);
+    assert!(vec.iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_from_array() {
-    let set = SparseVec::from([(0, 1), (1, 2), (2, 3)]);
-    assert!(set.iter().eq(&[Some(1), Some(2), Some(3)]));
+    let vec = SparseVec::from([(0, 1), (1, 2), (2, 3)]);
+    assert!(vec.iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_from_iterator() {
-    let set = SparseVec::from_iter([(0, 1), (1, 2), (2, 3)]);
-    assert!(set.iter().eq(&[Some(1), Some(2), Some(3)]));
+    let vec = SparseVec::from_iter([(0, 1), (1, 2), (2, 3)]);
+    assert!(vec.iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
@@ -1351,150 +1353,149 @@ mod test {
       hasher.finish()
     }
 
-    let mut set_1 = SparseVec::new();
-    let mut set_2 = SparseVec::new();
+    let mut vec_1 = SparseVec::new();
+    let mut vec_2 = SparseVec::new();
 
-    assert_eq!(set_1, set_2);
-    assert_eq!(hash(&set_1), hash(&set_2));
+    assert_eq!(vec_1, vec_2);
+    assert_eq!(hash(&vec_1), hash(&vec_2));
 
-    set_1.insert(0, 1);
+    let _ = vec_1.insert(0, 1);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    set_2.insert(0, 2);
+    let _ = vec_2.insert(0, 2);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    let _ = set_2.remove(0);
-    set_2.insert(1, 2);
+    let _ = vec_2.remove(0);
+    let _ = vec_2.insert(1, 2);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    set_1.insert(1, 2);
-    set_2.insert(0, 1);
+    let _ = vec_1.insert(1, 2);
+    let _ = vec_2.insert(0, 1);
 
-    assert_eq!(set_1, set_2);
-    assert_eq!(hash(&set_1), hash(&set_2));
+    assert_eq!(vec_1, vec_2);
+    assert_eq!(hash(&vec_1), hash(&vec_2));
 
-    let _ = set_1.remove(0);
-    let _ = set_2.remove(0);
+    let _ = vec_1.remove(0);
+    let _ = vec_2.remove(0);
 
-    assert_eq!(set_1, set_2);
-    assert_eq!(hash(&set_1), hash(&set_2));
+    assert_eq!(vec_1, vec_2);
+    assert_eq!(hash(&vec_1), hash(&vec_2));
   }
 
   #[test]
   fn test_index() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    assert_eq!(set[0], 1);
-    assert_eq!(set[2], 3);
+    assert_eq!(vec[0], 1);
+    assert_eq!(vec[2], 3);
   }
 
   #[should_panic]
   #[test]
   fn test_index_panics() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let _ = &set[100];
+    let _ = &vec[100];
   }
 
   #[test]
   fn test_index_mut() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let value = &mut set[2];
+    let value = &mut vec[2];
     assert_eq!(value, &mut 3);
     *value = 10;
 
-    assert_eq!(set[2], 10);
+    assert_eq!(vec[2], 10);
   }
 
   #[should_panic]
   #[test]
   fn test_index_mut_panics() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
 
-    let _ = &mut set[100];
+    let _ = &mut vec[100];
   }
 
   #[test]
   fn test_into_iterator() {
-    let mut set = SparseVec::new();
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert!(set.into_iter().eq([Some(1), Some(2), Some(3)]));
+    let mut vec = SparseVec::new();
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert!(vec.into_iter().eq([Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_into_iterator_ref() {
-    let mut set = SparseVec::new();
-    assert!((&set).into_iter().eq(&[]));
+    let mut vec = SparseVec::new();
+    assert!((&vec).into_iter().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert!((&set).into_iter().eq(&[Some(1), Some(2), Some(3)]));
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert!((&vec).into_iter().eq(&[Some(1), Some(2), Some(3)]));
   }
 
   #[test]
   fn test_into_iterator_mut() {
-    let mut set = SparseVec::new();
-    assert!((&mut set).into_iter().eq(&[]));
+    let mut vec = SparseVec::new();
+    assert!((&mut vec).into_iter().eq(&[]));
 
-    set.insert(0, 1);
-    set.insert(1, 2);
-    set.insert(2, 3);
-    assert!((&mut set).into_iter().eq(&[Some(1), Some(2), Some(3)]));
+    let _ = vec.insert(0, 1);
+    let _ = vec.insert(1, 2);
+    let _ = vec.insert(2, 3);
+    assert!((&mut vec).into_iter().eq(&[Some(1), Some(2), Some(3)]));
 
-    let value = set.iter_mut().next().unwrap();
+    let value = vec.iter_mut().next().unwrap();
     *value = Some(100);
 
-    assert_eq!(set.get(0), Some(&100));
+    assert_eq!(vec.get(0), Some(&100));
   }
 
   #[test]
   fn test_eq() {
-    let mut set_1 = SparseVec::new();
-    let mut set_2 = SparseVec::new();
+    let mut vec_1 = SparseVec::new();
+    let mut vec_2 = SparseVec::new();
 
-    assert_eq!(set_1, set_2);
+    assert_eq!(vec_1, vec_2);
 
-    set_1.insert(0, 1);
+    let _ = vec_1.insert(0, 1);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    set_2.insert(0, 2);
+    let _ = vec_2.insert(0, 2);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    let _ = set_2.remove(0);
-    set_2.insert(1, 2);
+    let _ = vec_2.remove(0);
+    let _ = vec_2.insert(1, 2);
 
-    assert_ne!(set_1, set_2);
+    assert_ne!(vec_1, vec_2);
 
-    set_1.insert(1, 2);
+    let _ = vec_1.insert(1, 2);
+    let _ = vec_2.insert(0, 1);
 
-    set_2.insert(0, 1);
+    assert_eq!(vec_1, vec_2);
 
-    assert_eq!(set_1, set_2);
+    let _ = vec_1.remove(0);
+    let _ = vec_2.remove(0);
 
-    let _ = set_1.remove(0);
-    let _ = set_2.remove(0);
-
-    assert_eq!(set_1, set_2);
+    assert_eq!(vec_1, vec_2);
   }
 }
