@@ -868,6 +868,34 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
     self.get(index).is_some()
   }
 
+  /// Returns the raw `usize` index into the dense buffer from the given index.
+  ///
+  /// This is meant to help with usecases of storing additional data outside of the sparse set in the same order.
+  ///
+  /// This operation is *O*(*1*).
+  ///
+  /// # Examples
+  ///
+  ///  ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  ///
+  /// set.insert(0, 1);
+  /// set.insert(1, 2);
+  /// set.insert(20, 3);
+  /// assert_eq!(Some(1), set.dense_index_of(1));
+  /// assert_eq!(Some(2), set.dense_index_of(20));
+  /// assert_eq!(None, set.dense_index_of(2));
+  /// ```
+  #[must_use]
+  pub fn dense_index_of(&self, index: I) -> Option<usize> {
+    self
+      .sparse
+      .get(index)
+      .map(|dense_index| dense_index.get() - 1)
+  }
+
   /// Returns a reference to an element pointed to by the index, if it exists.
   ///
   /// This operation is *O*(*1*).
@@ -891,9 +919,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   #[must_use]
   pub fn get(&self, index: I) -> Option<&T> {
     self
-      .sparse
-      .get(index)
-      .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index.get() - 1) })
+      .dense_index_of(index)
+      .map(|dense_index| unsafe { self.dense.get_unchecked(dense_index) })
   }
 
   /// Returns a reference to an element pointed to by the index, if it exists along with its index.
@@ -921,10 +948,10 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[must_use]
   pub fn get_with_index(&self, index: I) -> Option<(I, &T)> {
-    self.sparse.get(index).map(|dense_index| {
+    self.dense_index_of(index).map(|dense_index| {
       (
-        *unsafe { self.indices.get_unchecked(dense_index.get() - 1) },
-        unsafe { self.dense.get_unchecked(dense_index.get() - 1) },
+        *unsafe { self.indices.get_unchecked(dense_index) },
+        unsafe { self.dense.get_unchecked(dense_index) },
       )
     })
   }
@@ -953,9 +980,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   #[must_use]
   pub fn get_mut(&mut self, index: I) -> Option<&mut T> {
     self
-      .sparse
-      .get(index)
-      .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) })
+      .dense_index_of(index)
+      .map(|dense_index| unsafe { self.dense.get_unchecked_mut(dense_index) })
   }
 
   /// Returns a mutable reference to an element pointed to by the index,, if it exists along with its index.
@@ -984,10 +1010,10 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[must_use]
   pub fn get_mut_with_index(&mut self, index: I) -> Option<(I, &mut T)> {
-    self.sparse.get(index).map(|dense_index| {
+    self.dense_index_of(index).map(|dense_index| {
       (
-        *unsafe { self.indices.get_unchecked_mut(dense_index.get() - 1) },
-        unsafe { self.dense.get_unchecked_mut(dense_index.get() - 1) },
+        *unsafe { self.indices.get_unchecked_mut(dense_index) },
+        unsafe { self.dense.get_unchecked_mut(dense_index) },
       )
     })
   }
@@ -1092,9 +1118,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert(&mut self, index: I, mut value: T) -> Option<T> {
-    match self.sparse.get(index) {
+    match self.dense_index_of(index) {
       Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
         *unsafe { self.indices.get_unchecked_mut(dense_index) } = index;
         mem::swap(&mut value, unsafe {
           self.dense.get_unchecked_mut(dense_index)
@@ -1142,9 +1167,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[cfg(not(no_global_oom_handling))]
   pub fn insert_with_index(&mut self, mut index: I, mut value: T) -> Option<(I, T)> {
-    match self.sparse.get(index) {
+    match self.dense_index_of(index) {
       Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
         mem::swap(&mut index, unsafe {
           self.indices.get_unchecked_mut(dense_index)
         });
@@ -1414,11 +1438,8 @@ impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> 
     }
 
     for index in &self.indices {
-      match (self.sparse.get(*index), other.sparse.get(*index)) {
+      match (self.dense_index_of(*index), other.dense_index_of(*index)) {
         (Some(index), Some(other_index)) => {
-          let index = index.get() - 1;
-          let other_index = other_index.get() - 1;
-
           if unsafe { self.indices.get_unchecked(index) }
             != unsafe { other.indices.get_unchecked(other_index) }
           {
@@ -1594,6 +1615,22 @@ mod test {
     assert!(set.contains(0));
     let _ = set.remove(0);
     assert!(!set.contains(0));
+  }
+
+  #[test]
+  fn test_dense_index_of() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(20, 3);
+
+    assert_eq!(set.dense_index_of(0), Some(0));
+    assert_eq!(set.dense_index_of(1), Some(1));
+    assert_eq!(set.dense_index_of(2), None);
+    assert_eq!(set.dense_index_of(20), Some(2));
+
+    let _ = set.remove(1);
+    assert_eq!(set.dense_index_of(20), Some(1));
   }
 
   #[test]
