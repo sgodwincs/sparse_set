@@ -7,11 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.1] - 2022-07-22
+
+### Added
+
+- Added `dense_index_of` to retrieve the raw `usize` index into the dense buffer from the higher-level index type.
+
 ## [0.6.0] - 2022-07-22
 
 ### Added
 
-- Add `get_with_index`, `get_mut_with_index`, `insert_with_index`, and `remove_with_index` variants that return the
+- Added `get_with_index`, `get_mut_with_index`, `insert_with_index`, and `remove_with_index` variants that return the
   corresponding stored index. This index is guaranteed to have mapped to the same `usize` as the given one, but it may
   not be equivalent, that's up to how the user defined the index type.
 
