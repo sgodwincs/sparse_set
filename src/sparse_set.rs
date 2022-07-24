@@ -217,8 +217,12 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// Extracts a mutable slice of the entire dense buffer.
   ///
   /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// # Safety
+  ///
+  /// The order of value in the dense buffer must be kept in sync with the order of indices in the index buffer.
   #[must_use]
-  pub fn as_dense_mut_slice(&mut self) -> &mut [T] {
+  pub unsafe fn as_dense_mut_slice(&mut self) -> &mut [T] {
     &mut self.dense
   }
 
@@ -242,9 +246,11 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
   /// pointers to it invalid.
   ///
-  /// Swapping elements in the mutable slice changes which indices point to which values.
+  /// # Safety
+  ///
+  /// The order of value in the dense buffer must be kept in sync with the order of indices in the index buffer.
   #[must_use]
-  pub fn as_dense_mut_ptr(&mut self) -> *mut T {
+  pub unsafe fn as_dense_mut_ptr(&mut self) -> *mut T {
     self.dense.as_mut_ptr()
   }
 
@@ -269,6 +275,18 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
     &self.indices
   }
 
+  /// Extracts a mutable slice of the entire index buffer.
+  ///
+  /// Do not rely on the order being consistent across insertions and removals.
+  ///
+  /// # Safety
+  ///
+  /// The order of value in the dense buffer must be kept in sync with the order of indices in the index buffer.
+  #[must_use]
+  pub unsafe fn as_indices_mut_slice(&mut self) -> &mut [I] {
+    &mut self.indices
+  }
+
   /// Returns a raw pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the sparse set
   /// didn't allocate.
   ///
@@ -281,6 +299,21 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   #[must_use]
   pub fn as_indices_ptr(&self) -> *const I {
     self.indices.as_ptr()
+  }
+
+  /// Returns an unsafe mutable pointer to the index buffer, or a dangling raw pointer valid for zero sized reads if the
+  /// sparse set didn't allocate.
+  ///
+  /// The caller must ensure that the sparse set outlives the pointer this function returns, or else it will end up
+  /// pointing to garbage. Modifying the sparse set may cause its buffer to be reallocated, which would also make any
+  /// pointers to it invalid.
+  ///
+  /// # Safety
+  ///
+  /// The order of value in the dense buffer must be kept in sync with the order of indices in the index buffer.
+  #[must_use]
+  pub unsafe fn as_indices_mut_ptr(&mut self) -> *mut I {
+    self.indices.as_mut_ptr()
   }
 
   /// Returns the number of elements the dense buffer can hold without reallocating.
@@ -1565,7 +1598,7 @@ mod test {
   fn test_as_dense_mut_slice() {
     let mut set: SparseSet<usize, usize> = SparseSet::new();
     let _ = set.insert(0, 1);
-    assert_eq!(set.as_dense_mut_slice(), &mut [1]);
+    assert_eq!(unsafe { set.as_dense_mut_slice() }, &mut [1]);
   }
 
   #[test]
@@ -1578,8 +1611,8 @@ mod test {
   fn test_as_dense_mut_ptr() {
     let mut set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
     assert_eq!(
-      set.as_dense_mut_ptr(),
-      set.as_dense_mut_slice().as_mut_ptr()
+      unsafe { set.as_dense_mut_ptr() },
+      unsafe { set.as_dense_mut_slice() }.as_mut_ptr()
     );
   }
 
@@ -1594,6 +1627,15 @@ mod test {
   fn test_as_indices_ptr() {
     let set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
     assert_eq!(set.as_indices_ptr(), set.as_indices_slice().as_ptr());
+  }
+
+  #[test]
+  fn test_as_indices_ptr_mut() {
+    let mut set: SparseSet<usize, usize> = SparseSet::with_capacity(10, 10);
+    assert_eq!(
+      unsafe { set.as_indices_mut_ptr() },
+      unsafe { set.as_indices_mut_slice() }.as_mut_ptr()
+    );
   }
 
   #[test]
