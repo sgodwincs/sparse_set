@@ -1275,10 +1275,10 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[must_use]
   pub fn remove_with_index(&mut self, index: I) -> Option<(I, T)> {
-    match self.sparse.remove(index) {
-      Some(dense_index) => Some(unsafe { self.remove_at_dense_index(dense_index.get() - 1) }),
-      _ => None,
-    }
+    self
+      .sparse
+      .remove(index)
+      .map(|dense_index| unsafe { self.remove_at_dense_index(dense_index.get() - 1) })
   }
 
   unsafe fn remove_at_dense_index(&mut self, dense_index: usize) -> (I, T) {
