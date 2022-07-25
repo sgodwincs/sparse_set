@@ -929,6 +929,32 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
       .map(|dense_index| dense_index.get() - 1)
   }
 
+  /// Gets the given index's corresponding entry in the sparse set for in-place manipulation.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.entry(1).or_insert(0);
+  /// assert_eq!(set.get(1), Some(&0));
+  /// ```
+  #[must_use]
+  pub fn entry(&mut self, index: I) -> Entry<'_, I, T, SA, DA> {
+    match self.dense_index_of(index) {
+      Some(dense_index) => Entry::Occupied(OccupiedEntry {
+        dense_index,
+        index,
+        sparse_set: self,
+      }),
+      None => Entry::Vacant(VacantEntry {
+        index,
+        sparse_set: self,
+      }),
+    }
+  }
+
   /// Returns a reference to an element pointed to by the index, if it exists.
   ///
   /// This operation is *O*(*1*).
@@ -1150,24 +1176,8 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// assert!(set.values().eq(&[1, 4, 2, 3, 5]));
   /// ```
   #[cfg(not(no_global_oom_handling))]
-  pub fn insert(&mut self, index: I, mut value: T) -> Option<T> {
-    match self.dense_index_of(index) {
-      Some(dense_index) => {
-        *unsafe { self.indices.get_unchecked_mut(dense_index) } = index;
-        mem::swap(&mut value, unsafe {
-          self.dense.get_unchecked_mut(dense_index)
-        });
-        Some(value)
-      }
-      None => {
-        self.dense.push(value);
-        self.indices.push(index);
-        let _ = self.sparse.insert(index, unsafe {
-          NonZeroUsize::new_unchecked(self.dense_len())
-        });
-        None
-      }
-    }
+  pub fn insert(&mut self, index: I, value: T) -> Option<T> {
+    self.insert_with_index(index, value).map(|(_, value)| value)
   }
 
   /// Inserts an element at position `index` within the sparse set.
@@ -1240,22 +1250,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// ```
   #[must_use]
   pub fn remove(&mut self, index: I) -> Option<T> {
-    match self.sparse.remove(index) {
-      Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
-        let _ = self.indices.swap_remove(dense_index);
-        let value = Some(self.dense.swap_remove(dense_index));
-
-        if dense_index != self.dense.len() {
-          let swapped_index: usize = (*unsafe { self.indices.get_unchecked(dense_index) }).into();
-          *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
-            Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
-        }
-
-        value
-      }
-      _ => None,
-    }
+    self.remove_with_index(index).map(|(_, value)| value)
   }
 
   /// Removes and returns the element at position `index` within the sparse set, if it exists along with its index.
@@ -1281,21 +1276,22 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   #[must_use]
   pub fn remove_with_index(&mut self, index: I) -> Option<(I, T)> {
     match self.sparse.remove(index) {
-      Some(dense_index) => {
-        let dense_index = dense_index.get() - 1;
-        let index = Some(self.indices.swap_remove(dense_index));
-        let value = Some(self.dense.swap_remove(dense_index));
-
-        if dense_index != self.dense.len() {
-          let swapped_index: usize = (*unsafe { self.indices.get_unchecked(dense_index) }).into();
-          *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
-            Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
-        }
-
-        index.map(|index| (index, unsafe { value.unwrap_unchecked() }))
-      }
+      Some(dense_index) => Some(unsafe { self.remove_at_dense_index(dense_index.get() - 1) }),
       _ => None,
     }
+  }
+
+  unsafe fn remove_at_dense_index(&mut self, dense_index: usize) -> (I, T) {
+    let index = self.indices.swap_remove(dense_index);
+    let value = self.dense.swap_remove(dense_index);
+
+    if dense_index != self.dense.len() {
+      let swapped_index: usize = (*unsafe { self.indices.get_unchecked(dense_index) }).into();
+      *unsafe { self.sparse.get_unchecked_mut(swapped_index) } =
+        Some(unsafe { NonZeroUsize::new_unchecked(dense_index + 1) });
+    }
+
+    (index, value)
   }
 }
 
@@ -1497,6 +1493,221 @@ impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> 
 }
 
 impl<I: Eq + SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
+
+/// A view into a single entry in a sparse set, which may be either vacant or occupied.
+///
+/// This is constructed from the [`SparseSet::entry`] function.
+pub enum Entry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global> {
+  /// A vacant entry.
+  Vacant(VacantEntry<'a, I, T, SA, DA>),
+
+  /// An occupied entry.
+  Occupied(OccupiedEntry<'a, I, T, SA, DA>),
+}
+
+impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Entry<'a, I, T, SA, DA> {
+  /// Provides in-place mutable access to an occupied entry before any potential inserts into the sparse set.
+  pub fn and_modify<F: FnOnce(&mut T)>(self, function: F) -> Self {
+    match self {
+      Entry::Vacant(entry) => Entry::Vacant(entry),
+      Entry::Occupied(mut entry) => {
+        function(entry.get_mut());
+        Entry::Occupied(entry)
+      }
+    }
+  }
+
+  /// The index used to create this entry.
+  pub fn entry_index(&self) -> I {
+    match self {
+      Entry::Vacant(entry) => entry.entry_index(),
+      Entry::Occupied(entry) => entry.entry_index(),
+    }
+  }
+
+  /// Ensures a value is in the entry by inserting the default if empty, and returns a mutable reference to the value in
+  /// the entry.
+  pub fn or_insert(self, default: T) -> &'a mut T {
+    match self {
+      Entry::Vacant(entry) => entry.insert(default),
+      Entry::Occupied(entry) => entry.into_mut(),
+    }
+  }
+
+  /// Ensures a value is in the entry by inserting the result of the default function if empty, and returns a mutable
+  /// reference to the value in the entry.
+  pub fn or_insert_with<F: FnOnce() -> T>(self, default: F) -> &'a mut T {
+    match self {
+      Entry::Vacant(entry) => entry.insert(default()),
+      Entry::Occupied(entry) => entry.into_mut(),
+    }
+  }
+
+  /// Sets the value of the entry, and returns an [`OccupiedEntry`].
+  pub fn insert_entry(self, value: T) -> OccupiedEntry<'a, I, T, SA, DA> {
+    match self {
+      Entry::Vacant(entry) => entry.insert_entry(value),
+      Entry::Occupied(mut entry) => {
+        let _ = entry.insert(value);
+        entry
+      }
+    }
+  }
+}
+
+impl<I: Debug + SparseSetIndex, T: Debug, SA: Allocator, DA: Allocator> Debug
+  for Entry<'_, I, T, SA, DA>
+{
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Entry::Vacant(entry) => formatter.debug_tuple("Entry").field(entry).finish(),
+      Entry::Occupied(entry) => formatter.debug_tuple("Entry").field(entry).finish(),
+    }
+  }
+}
+
+/// A view into a vacant entry in a sparse set.
+pub struct VacantEntry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global> {
+  /// The index this entry was created from.
+  index: I,
+
+  /// A reference to the sparse set this entry was created for.
+  sparse_set: &'a mut SparseSet<I, T, SA, DA>,
+}
+
+impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> VacantEntry<'a, I, T, SA, DA> {
+  /// The index used to create this entry.
+  pub fn entry_index(&self) -> I {
+    self.index
+  }
+
+  /// Inserts the given value into this entry, returning a mutable reference to it.
+  pub fn insert(mut self, value: T) -> &'a mut T {
+    let dense_index = self.insert_raw(value);
+    unsafe { self.sparse_set.dense.get_unchecked_mut(dense_index) }
+  }
+
+  /// Inserts the given value into this entry, returning an occupied entry.
+  pub fn insert_entry(mut self, value: T) -> OccupiedEntry<'a, I, T, SA, DA> {
+    let dense_index = self.insert_raw(value);
+    OccupiedEntry {
+      dense_index,
+      index: self.index,
+      sparse_set: self.sparse_set,
+    }
+  }
+
+  /// Inserts the given value into this entry without consuming it.
+  fn insert_raw(&mut self, value: T) -> usize {
+    self.sparse_set.dense.push(value);
+    self.sparse_set.indices.push(self.index);
+    let _ = self.sparse_set.sparse.insert(self.index, unsafe {
+      NonZeroUsize::new_unchecked(self.sparse_set.dense_len())
+    });
+    self.sparse_set.dense_len() - 1
+  }
+}
+
+impl<I: Debug, T, SA: Allocator, DA: Allocator> Debug for VacantEntry<'_, I, T, SA, DA> {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter
+      .debug_tuple("VacantEntry")
+      .field(&self.index)
+      .finish()
+  }
+}
+
+/// A view into an occupied entry in a sparse set.
+pub struct OccupiedEntry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global> {
+  /// The raw `usize` index into the dense buffer for this entry.
+  dense_index: usize,
+
+  /// The index this entry was created from.
+  index: I,
+
+  /// A reference to the sparse set this entry was created for.
+  sparse_set: &'a mut SparseSet<I, T, SA, DA>,
+}
+
+impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> OccupiedEntry<'a, I, T, SA, DA> {
+  /// Returns the raw `usize` index into the dense buffer for this entry.
+  pub fn dense_index(&self) -> usize {
+    self.dense_index
+  }
+
+  /// Returns an immutable reference to the value for this entry.
+  pub fn get(&self) -> &T {
+    unsafe { self.sparse_set.dense.get_unchecked(self.dense_index) }
+  }
+
+  /// Returns an mutable reference to the value for this entry.
+  pub fn get_mut(&mut self) -> &mut T {
+    unsafe { self.sparse_set.dense.get_unchecked_mut(self.dense_index) }
+  }
+
+  /// Consumes the entry, returning a reference to the entry's value tied to the lifetime of the sparse set.
+  pub fn into_mut(self) -> &'a mut T {
+    unsafe { self.sparse_set.dense.get_unchecked_mut(self.dense_index) }
+  }
+
+  /// The index used to create this entry.
+  ///
+  /// This index may be different from the one currently stored (see [`OccupiedEntry::stored_index`]), but both will
+  /// have the same behavior with respect to [`SparseSetIndex`].
+  pub fn entry_index(&self) -> I {
+    self.index
+  }
+
+  /// The index stored for this index..
+  ///
+  /// This index may be different from the one used to create this entry (see [`OccupiedEntry::entry_index`]), but both
+  /// will have the same behavior with respect to [`SparseSetIndex`].
+  pub fn stored_index(&self) -> I {
+    *unsafe { self.sparse_set.indices.get_unchecked(self.dense_index) }
+  }
+
+  /// Inserts the given value into this entry, returning the existing value.
+  pub fn insert(&mut self, value: T) -> T {
+    self.insert_with_index(value).1
+  }
+
+  /// Inserts the given value into this entry, returning the existing value and its index.
+  pub fn insert_with_index(&mut self, mut value: T) -> (I, T) {
+    let mut index = self.index;
+    mem::swap(&mut index, unsafe {
+      self.sparse_set.indices.get_unchecked_mut(self.dense_index)
+    });
+    mem::swap(&mut value, unsafe {
+      self.sparse_set.dense.get_unchecked_mut(self.dense_index)
+    });
+    (index, value)
+  }
+
+  /// Removes and returns the value associated with this entry, consuming it.
+  pub fn remove(self) -> T {
+    self.remove_with_index().1
+  }
+
+  /// Removes and returns the value associated with this entry along with its index, consuming it.
+  pub fn remove_with_index(self) -> (I, T) {
+    let _ = self.sparse_set.sparse.remove(self.index);
+    unsafe { self.sparse_set.remove_at_dense_index(self.dense_index) }
+  }
+
+  //   pub fn insert() {}
+}
+
+impl<I: Debug + SparseSetIndex, T: Debug, SA: Allocator, DA: Allocator> Debug
+  for OccupiedEntry<'_, I, T, SA, DA>
+{
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter
+      .debug_struct("OccupiedEntry")
+      .field("index", &self.entry_index())
+      .field("value", self.get())
+      .finish()
+  }
+}
 
 #[cfg(test)]
 mod test {
@@ -2551,5 +2762,313 @@ mod test {
     let _ = set_2.remove(0);
 
     assert_eq!(set_1, set_2);
+  }
+
+  #[test]
+  fn test_entry_and_modify() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    assert_eq!(set.get(0), Some(&1));
+    let _ = set.entry(0).and_modify(|value| *value += 1);
+    assert_eq!(set.get(0), Some(&2));
+
+    assert_eq!(set.get(1), None);
+    let _ = set.entry(0).and_modify(|value| *value += 1);
+    assert_eq!(set.get(1), None);
+  }
+
+  #[test]
+  fn test_entry_or_insert() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    assert_eq!(set.get(0), Some(&1));
+    let value = set.entry(0).or_insert(2);
+    assert_eq!(value, &1);
+    assert_eq!(set.get(0), Some(&1));
+
+    assert_eq!(set.get(1), None);
+    let value = set.entry(1).or_insert(2);
+    assert_eq!(value, &2);
+    assert_eq!(set.get(1), Some(&2));
+  }
+
+  #[test]
+  fn test_entry_or_insert_with() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    assert_eq!(set.get(0), Some(&1));
+    let value = set.entry(0).or_insert_with(|| 2);
+    assert_eq!(value, &1);
+    assert_eq!(set.get(0), Some(&1));
+
+    assert_eq!(set.get(1), None);
+    let value = set.entry(1).or_insert_with(|| 2);
+    assert_eq!(value, &2);
+    assert_eq!(set.get(1), Some(&2));
+  }
+
+  #[test]
+  fn test_entry_entry_index() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    let entry = set.entry(0);
+    assert_eq!(entry.entry_index(), 0);
+
+    let entry = set.entry(1);
+    assert_eq!(entry.entry_index(), 1);
+  }
+
+  #[test]
+  fn test_entry_insert_entry() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    assert_eq!(set.get(0), Some(&1));
+    let entry = set.entry(0).insert_entry(2);
+    assert_eq!(entry.get(), &2);
+    assert_eq!(set.get(0), Some(&2));
+
+    assert_eq!(set.get(1), None);
+    let entry = set.entry(0).insert_entry(2);
+    assert_eq!(entry.get(), &2);
+    assert_eq!(set.get(0), Some(&2));
+  }
+
+  #[test]
+  fn test_entry_debug() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+
+    let entry = set.entry(0);
+    assert_eq!(
+      format!("{:?}", entry),
+      "Entry(OccupiedEntry { index: 0, value: 1 })"
+    );
+
+    let entry = set.entry(1);
+    assert_eq!(format!("{:?}", entry), "Entry(VacantEntry(1))");
+  }
+
+  #[test]
+  fn test_vacant_entry_entry_index() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let entry = match set.entry(0) {
+      Entry::Vacant(entry) => entry,
+      Entry::Occupied(_) => panic!("expected vacant entry"),
+    };
+
+    assert_eq!(entry.entry_index(), 0);
+  }
+
+  #[test]
+  fn test_vacant_entry_insert() {
+    let mut set = SparseSet::new();
+    let entry = match set.entry(0) {
+      Entry::Vacant(entry) => entry,
+      Entry::Occupied(_) => panic!("expected vacant entry"),
+    };
+
+    assert_eq!(entry.insert(1), &mut 1);
+    assert_eq!(set.get(0), Some(&1));
+  }
+
+  #[test]
+  fn test_vacant_entry_insert_entry() {
+    let mut set = SparseSet::new();
+    let entry = match set.entry(0) {
+      Entry::Vacant(entry) => entry,
+      Entry::Occupied(_) => panic!("expected vacant entry"),
+    };
+
+    assert_eq!(entry.insert_entry(1).get(), &1);
+    assert_eq!(set.get(0), Some(&1));
+  }
+
+  #[test]
+  fn test_vacant_entry_debug() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let entry = match set.entry(0) {
+      Entry::Vacant(entry) => entry,
+      Entry::Occupied(_) => panic!("expected vacant entry"),
+    };
+    assert_eq!(format!("{:?}", entry), "VacantEntry(0)");
+  }
+
+  #[test]
+  fn test_occupied_entry_dense_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.dense_index(), 1);
+  }
+
+  #[test]
+  fn test_occupied_entry_get() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.get(), &2);
+  }
+
+  #[test]
+  fn test_occupied_entry_get_mut() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let mut entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    let value = entry.get_mut();
+    assert_eq!(value, &mut 2);
+    *value = 3;
+
+    assert_eq!(set.get(1), Some(&3));
+  }
+
+  #[test]
+  fn test_occupied_entry_into_mut() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    let value = entry.into_mut();
+    assert_eq!(value, &mut 2);
+    *value = 3;
+
+    assert_eq!(set.get(1), Some(&3));
+  }
+
+  #[test]
+  fn test_occupied_entry_entry_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.entry_index(), 1);
+  }
+
+  #[test]
+  fn test_occupied_entry_stored_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(Index::new(0, 0), 1);
+    let _ = set.insert(Index::new(1, 0), 2);
+    let _ = set.insert(Index::new(2, 0), 3);
+    let entry = match set.entry(Index::new(1, 1)) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.entry_index(), Index::new(1, 1));
+    assert_eq!(entry.stored_index(), Index::new(1, 0));
+  }
+
+  #[test]
+  fn test_occupied_entry_insert() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let mut entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.insert(3), 2);
+    assert_eq!(set.get(1), Some(&3));
+  }
+
+  #[test]
+  fn test_occupied_entry_insert_with_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(Index::new(0, 0), 1);
+    let _ = set.insert(Index::new(1, 0), 2);
+    let _ = set.insert(Index::new(2, 0), 3);
+    let mut entry = match set.entry(Index::new(1, 1)) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.stored_index(), Index::new(1, 0));
+    assert_eq!(entry.insert_with_index(3), (Index::new(1, 0), 2));
+    assert_eq!(entry.stored_index(), Index::new(1, 1));
+    assert_eq!(
+      set.get_with_index(Index::new(1, 0)),
+      Some((Index::new(1, 1), &3))
+    );
+  }
+
+  #[test]
+  fn test_occupied_entry_remove() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.remove(), 2);
+    assert_eq!(set.get(1), None);
+  }
+
+  #[test]
+  fn test_occupied_entry_remove_with_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(Index::new(0, 0), 1);
+    let _ = set.insert(Index::new(1, 0), 2);
+    let _ = set.insert(Index::new(2, 0), 3);
+    let entry = match set.entry(Index::new(1, 1)) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.remove_with_index(), (Index::new(1, 0), 2));
+    assert_eq!(set.get_with_index(Index::new(1, 0)), None,);
+  }
+
+  #[test]
+  fn test_occupied_entry_debug() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected occupied entry"),
+      Entry::Occupied(entry) => entry,
+    };
+    assert_eq!(
+      format!("{:?}", entry),
+      "OccupiedEntry { index: 1, value: 2 }"
+    );
   }
 }
