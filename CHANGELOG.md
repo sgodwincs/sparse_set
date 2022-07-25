@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0] - 2022-07-24
+
+### Added
+
+- Added an entry API.
+
+### Changed
+
+- All functions that give direct mutable access to the dense or indices buffer are now considered unsafe as its the
+  caller's responsibility to ensure the relative ordering between the two is maintained.
+
 ## [0.6.1] - 2022-07-22
 
 ### Added
