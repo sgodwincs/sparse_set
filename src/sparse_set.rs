@@ -1507,6 +1507,7 @@ pub enum Entry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global> {
 
 impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Entry<'a, I, T, SA, DA> {
   /// Provides in-place mutable access to an occupied entry before any potential inserts into the sparse set.
+  #[must_use]
   pub fn and_modify<F: FnOnce(&mut T)>(self, function: F) -> Self {
     match self {
       Entry::Vacant(entry) => Entry::Vacant(entry),
@@ -1518,6 +1519,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Entry<'a, I, T, SA,
   }
 
   /// The index used to create this entry.
+  #[must_use]
   pub fn entry_index(&self) -> I {
     match self {
       Entry::Vacant(entry) => entry.entry_index(),
@@ -1577,6 +1579,7 @@ pub struct VacantEntry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global>
 
 impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> VacantEntry<'a, I, T, SA, DA> {
   /// The index used to create this entry.
+  #[must_use]
   pub fn entry_index(&self) -> I {
     self.index
   }
@@ -1598,6 +1601,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> VacantEntry<'a, I, 
   }
 
   /// Inserts the given value into this entry without consuming it.
+  #[must_use]
   fn insert_raw(&mut self, value: T) -> usize {
     self.sparse_set.dense.push(value);
     self.sparse_set.indices.push(self.index);
@@ -1631,21 +1635,25 @@ pub struct OccupiedEntry<'a, I, T, SA: Allocator = Global, DA: Allocator = Globa
 
 impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> OccupiedEntry<'a, I, T, SA, DA> {
   /// Returns the raw `usize` index into the dense buffer for this entry.
+  #[must_use]
   pub fn dense_index(&self) -> usize {
     self.dense_index
   }
 
   /// Returns an immutable reference to the value for this entry.
+  #[must_use]
   pub fn get(&self) -> &T {
     unsafe { self.sparse_set.dense.get_unchecked(self.dense_index) }
   }
 
   /// Returns an mutable reference to the value for this entry.
+  #[must_use]
   pub fn get_mut(&mut self) -> &mut T {
     unsafe { self.sparse_set.dense.get_unchecked_mut(self.dense_index) }
   }
 
   /// Consumes the entry, returning a reference to the entry's value tied to the lifetime of the sparse set.
+  #[must_use]
   pub fn into_mut(self) -> &'a mut T {
     unsafe { self.sparse_set.dense.get_unchecked_mut(self.dense_index) }
   }
@@ -1654,6 +1662,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> OccupiedEntry<'a, I
   ///
   /// This index may be different from the one currently stored (see [`OccupiedEntry::stored_index`]), but both will
   /// have the same behavior with respect to [`SparseSetIndex`].
+  #[must_use]
   pub fn entry_index(&self) -> I {
     self.index
   }
@@ -1662,6 +1671,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> OccupiedEntry<'a, I
   ///
   /// This index may be different from the one used to create this entry (see [`OccupiedEntry::entry_index`]), but both
   /// will have the same behavior with respect to [`SparseSetIndex`].
+  #[must_use]
   pub fn stored_index(&self) -> I {
     *unsafe { self.sparse_set.indices.get_unchecked(self.dense_index) }
   }
