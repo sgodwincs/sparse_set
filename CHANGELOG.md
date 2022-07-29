@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.1] - 2022-07-29
+
+### Added
+
+- Added additional trait bounds on returned iterator types.
+
 ## [0.7.0] - 2022-07-24
 
 ### Added
