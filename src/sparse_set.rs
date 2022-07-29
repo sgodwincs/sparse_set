@@ -449,7 +449,9 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// assert!(set.drain().eq([(0, 1), (1, 2), (2, 3)]));
   /// ```
-  pub fn drain(&mut self) -> impl Iterator<Item = (I, T)> + '_ {
+  pub fn drain(
+    &mut self,
+  ) -> impl Iterator<Item = (I, T)> + DoubleEndedIterator + ExactSizeIterator + '_ {
     self.sparse.clear();
     self.indices.drain(..).zip(self.dense.drain(..))
   }
@@ -846,7 +848,7 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// assert!(set.values().eq(&[1, 2, 3]));
   /// ```
-  pub fn values(&self) -> impl Iterator<Item = &T> {
+  pub fn values(&self) -> impl Iterator<Item = &T> + DoubleEndedIterator + ExactSizeIterator {
     self.dense.iter()
   }
 
@@ -872,7 +874,9 @@ impl<I, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA> {
   ///
   /// assert!(set.values().eq(&[3, 4, 5]));
   /// ```
-  pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+  pub fn values_mut(
+    &mut self,
+  ) -> impl Iterator<Item = &mut T> + DoubleEndedIterator + ExactSizeIterator {
     self.dense.iter_mut()
   }
 }
@@ -1100,7 +1104,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   /// assert_eq!(iterator.next(), Some(2));
   /// assert_eq!(iterator.next(), None);
   /// ```
-  pub fn indices(&self) -> impl Iterator<Item = I> + '_ {
+  pub fn indices(&self) -> impl Iterator<Item = I> + DoubleEndedIterator + ExactSizeIterator + '_ {
     self.indices.iter().cloned()
   }
 
@@ -1124,7 +1128,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// assert!(set.iter().eq([(0, &1), (1, &2), (2, &3)]));
   /// ```
-  pub fn iter(&self) -> impl Iterator<Item = (I, &T)> {
+  pub fn iter(&self) -> impl Iterator<Item = (I, &T)> + DoubleEndedIterator + ExactSizeIterator {
     self.indices.iter().cloned().zip(self.dense.iter())
   }
 
@@ -1146,7 +1150,9 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
   ///
   /// assert!(set.iter_mut().eq([(0, &mut 1), (1, &mut 2), (2, &mut 3)]));
   /// ```
-  pub fn iter_mut(&mut self) -> impl Iterator<Item = (I, &mut T)> {
+  pub fn iter_mut(
+    &mut self,
+  ) -> impl Iterator<Item = (I, &mut T)> + DoubleEndedIterator + ExactSizeIterator {
     self.indices.iter().cloned().zip(self.dense.iter_mut())
   }
 
@@ -1428,7 +1434,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IndexMut<I> for SparseS
 
 impl<I, T, SA: Allocator, DA: Allocator> IntoIterator for SparseSet<I, T, SA, DA> {
   type Item = (I, T);
-  type IntoIter = impl Iterator<Item = Self::Item>;
+  type IntoIter = impl Iterator<Item = Self::Item> + DoubleEndedIterator + ExactSizeIterator;
 
   #[inline]
   fn into_iter(self) -> Self::IntoIter {
@@ -1440,7 +1446,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
   for &'a SparseSet<I, T, SA, DA>
 {
   type Item = (I, &'a T);
-  type IntoIter = impl Iterator<Item = Self::Item>;
+  type IntoIter = impl Iterator<Item = Self::Item> + DoubleEndedIterator + ExactSizeIterator;
 
   fn into_iter(self) -> Self::IntoIter {
     self.iter()
@@ -1451,7 +1457,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> IntoIterator
   for &'a mut SparseSet<I, T, SA, DA>
 {
   type Item = (I, &'a mut T);
-  type IntoIter = impl Iterator<Item = Self::Item>;
+  type IntoIter = impl Iterator<Item = Self::Item> + DoubleEndedIterator + ExactSizeIterator;
 
   fn into_iter(self) -> Self::IntoIter {
     self.iter_mut()
