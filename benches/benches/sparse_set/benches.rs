@@ -1,5 +1,5 @@
-#![allow(unsafe_code)]
 #![allow(missing_docs)]
+#![allow(unsafe_code)]
 #![allow(unused_results)]
 
 use criterion::criterion_main;
