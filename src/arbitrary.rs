@@ -1,14 +1,8 @@
 //! `Arbitrary` implementations for the types in this crate.
 
-#[cfg(feature = "any_vec")]
-mod any_sparse_set;
-
 use arbitrary::{Arbitrary, Unstructured};
 
 use crate::{SparseSet, SparseSetIndex, SparseVec};
-
-#[cfg(feature = "any_vec")]
-pub use any_sparse_set::*;
 
 impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for SparseSet<I, T> {
   fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, Bencher, Criterion};
-use sparse_set::{any_sparse_set::any_value::AnyValueWrapper, AnySparseSet, SparseSet};
+use sparse_set::SparseSet;
 use sparseset::SparseSet as CrateSparseSet;
 use std::collections::HashMap;
 
@@ -17,31 +17,6 @@ fn sparse_set(b: &mut Bencher<'_>) {
   b.iter(|| {
     for i in set.values() {
       sum += i;
-    }
-  });
-}
-
-fn any_sparse_set_pre_downcast(b: &mut Bencher<'_>) {
-  let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-  set.extend(input_iter().map(|(i, v)| (i, AnyValueWrapper::new(v))));
-  let downcast_set = set.downcast_ref::<usize>().unwrap();
-  let mut sum = 0;
-
-  b.iter(|| {
-    for i in downcast_set.values() {
-      sum += i;
-    }
-  });
-}
-
-fn any_sparse_set_post_downcast(b: &mut Bencher<'_>) {
-  let mut set: AnySparseSet<usize> = AnySparseSet::new::<usize>();
-  set.extend(input_iter().map(|(i, v)| (i, AnyValueWrapper::new(v))));
-  let mut sum = 0;
-
-  b.iter(|| {
-    for i in set.values() {
-      sum += unsafe { i.downcast_ref_unchecked::<usize>() };
     }
   });
 }
@@ -78,12 +53,6 @@ fn benchmark(c: &mut Criterion) {
   let mut group = c.benchmark_group("iterate sparse");
 
   group.bench_function("SparseSet", |b| sparse_set(b));
-  group.bench_function("AnySparseSet pre-downcast", |b| {
-    any_sparse_set_pre_downcast(b)
-  });
-  group.bench_function("AnySparseSet post-downcast", |b| {
-    any_sparse_set_post_downcast(b)
-  });
   group.bench_function("HashMap", |b| hash_map(b));
   group.bench_function("CrateSparseSet", |b| crate_sparse_set(b));
 

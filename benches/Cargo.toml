@@ -8,7 +8,7 @@ publish = false
 [dev-dependencies]
 arbitrary = "1.1.3"
 criterion = "0.3"
-sparse_set = { path = "..", features = ["unstable"] }
+sparse_set = { path = ".." }
 sparseset = "1.0"
 
 [[bench]]

@@ -9,14 +9,8 @@
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 
-#[cfg(feature = "any_vec")]
-pub mod any_sparse_set;
-
 pub mod index;
 pub mod sparse_set;
 pub mod sparse_vec;
 
 pub use crate::{index::SparseSetIndex, sparse_set::SparseSet, sparse_vec::SparseVec};
-
-#[cfg(feature = "any_vec")]
-pub use crate::any_sparse_set::{AnySparseSet, AnySparseSetMut, AnySparseSetRef};
