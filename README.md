@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/sparse_set.svg)](https://crates.io/crates/sparse_set)
 [![Docs.rs](https://docs.rs/sparse_set/badge.svg)](https://docs.rs/sparse_set)
-[![CI](https://github.com/sgodwincs/sparse_set/workflows/CI/badge.svg)](https://github.com/{{gh-username}}/sparse_set/actions)
+[![CI](https://github.com/sgodwincs/sparse_set/workflows/CI/badge.svg)](https://github.com/sgodwincs/sparse_set/actions)
 
 This crate is a sparse set implementation.
 
