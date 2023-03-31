@@ -10,6 +10,7 @@ use std::{
   fmt,
   hash::{Hash, Hasher},
   marker::PhantomData,
+  mem,
   ops::{Deref, DerefMut, Index, IndexMut},
 };
 
@@ -744,7 +745,7 @@ impl<'a, I: SparseSetIndex, T: Copy + 'a, A: Allocator + 'a> Extend<(I, &'a T)>
 impl<I: SparseSetIndex, T, A: Allocator> Extend<(I, T)> for SparseVec<I, T, A> {
   fn extend<Iter: IntoIterator<Item = (I, T)>>(&mut self, iter: Iter) {
     for (index, value) in iter {
-      let _ = self.insert(index, value);
+      mem::drop(self.insert(index, value));
     }
   }
 }
@@ -755,7 +756,7 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseVec<I, T>
     let mut vec = Self::with_capacity(slice.len());
 
     for (index, value) in slice {
-      let _ = vec.insert(index, value);
+      mem::drop(vec.insert(index, value));
     }
 
     vec
@@ -773,7 +774,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseVec<I, T> {
     let mut vec = Self::with_capacity(capacity);
 
     for (index, value) in iter {
-      let _ = vec.insert(index, value);
+      mem::drop(vec.insert(index, value));
     }
 
     vec

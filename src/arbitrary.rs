@@ -1,5 +1,7 @@
 //! `Arbitrary` implementations for the types in this crate.
 
+use std::mem;
+
 use arbitrary::{Arbitrary, Unstructured};
 
 use crate::{SparseSet, SparseSetIndex, SparseVec};
@@ -14,7 +16,7 @@ impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for Sp
       if *u.choose(&[false, true])? {
         let index = u.int_in_range(0..=(len - 1))?.into();
         let value = T::arbitrary(u)?;
-        let _ = set.insert(index, value);
+        mem::drop(set.insert(index, value));
       }
     }
 
@@ -32,7 +34,7 @@ impl<'a, I: From<usize> + SparseSetIndex, T: Arbitrary<'a>> Arbitrary<'a> for Sp
       if *u.choose(&[false, true])? {
         let index = u.int_in_range(0..=(len - 1))?.into();
         let value = T::arbitrary(u)?;
-        let _ = set.insert(index, value);
+        mem::drop(set.insert(index, value));
       }
     }
 

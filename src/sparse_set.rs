@@ -11,7 +11,7 @@ use std::{
   collections::TryReserveError,
   fmt::{self, Debug, Formatter},
   hash::{Hash, Hasher},
-  mem::{self},
+  mem,
   num::NonZeroUsize,
   ops::{Deref, DerefMut, Index, IndexMut},
 };
@@ -1370,7 +1370,7 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Extend<(I, T)>
 {
   fn extend<Iter: IntoIterator<Item = (I, T)>>(&mut self, iter: Iter) {
     for (index, value) in iter {
-      let _ = self.insert(index, value);
+      mem::drop(self.insert(index, value));
     }
   }
 }
@@ -1381,7 +1381,7 @@ impl<I: SparseSetIndex, T, const N: usize> From<[(I, T); N]> for SparseSet<I, T>
     let mut set = Self::with_capacity(slice.len(), slice.len());
 
     for (index, value) in slice {
-      let _ = set.insert(index, value);
+      mem::drop(set.insert(index, value));
     }
 
     set
@@ -1399,7 +1399,7 @@ impl<I: SparseSetIndex, T> FromIterator<(I, T)> for SparseSet<I, T> {
     let mut set = Self::with_capacity(capacity, capacity);
 
     for (index, value) in iter {
-      let _ = set.insert(index, value);
+      mem::drop(set.insert(index, value));
     }
 
     set
@@ -1556,7 +1556,7 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> Entry<'a, I, T, SA,
     match self {
       Entry::Vacant(entry) => entry.insert_entry(value),
       Entry::Occupied(mut entry) => {
-        let _ = entry.insert(value);
+        mem::drop(entry.insert(value));
         entry
       }
     }
