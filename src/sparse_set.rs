@@ -959,6 +959,33 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
     }
   }
 
+  /// Gets the given index's corresponding immutable entry in the sparse set.
+  ///
+  /// This is primarily useful when you may need to get the full information about an entry, such as its stored index,
+  /// dense index, and value.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 1);
+  ///
+  /// let entry = set.immutable_entry(0).unwrap();
+  /// assert_eq!(entry.get(), &1);
+  /// ```
+  #[must_use]
+  pub fn immutable_entry(&self, index: I) -> Option<ImmutableEntry<'_, I, T, SA, DA>> {
+    self
+      .dense_index_of(index)
+      .map(|dense_index| ImmutableEntry {
+        dense_index,
+        index,
+        sparse_set: self,
+      })
+  }
+
   /// Returns a reference to an element pointed to by the index, if it exists.
   ///
   /// This operation is *O*(*1*).
@@ -1500,6 +1527,64 @@ impl<I: PartialEq + SparseSetIndex, T: PartialEq, SA: Allocator, DA: Allocator> 
 
 impl<I: Eq + SparseSetIndex, T: Eq, SA: Allocator, DA: Allocator> Eq for SparseSet<I, T, SA, DA> {}
 
+/// An immutable view into an entry in a sparse set.
+///
+/// This differs from the [`Entry`] APIs in that this is purely an immutable view.
+pub struct ImmutableEntry<'a, I, T, SA: Allocator = Global, DA: Allocator = Global> {
+  /// The raw `usize` index into the dense buffer for this entry.
+  dense_index: usize,
+
+  /// The index this entry was created from.
+  index: I,
+
+  /// A reference to the sparse set this entry was created for.
+  sparse_set: &'a SparseSet<I, T, SA, DA>,
+}
+
+impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> ImmutableEntry<'_, I, T, SA, DA> {
+  /// Returns the raw `usize` index into the dense buffer for this entry.
+  #[must_use]
+  pub fn dense_index(&self) -> usize {
+    self.dense_index
+  }
+
+  /// Returns an immutable reference to the value for this entry.
+  #[must_use]
+  pub fn get(&self) -> &T {
+    unsafe { self.sparse_set.dense.get_unchecked(self.dense_index) }
+  }
+
+  /// The index used to create this entry.
+  ///
+  /// This index may be different from the one currently stored (see [`OccupiedEntry::stored_index`]), but both will
+  /// have the same behavior with respect to [`SparseSetIndex`].
+  #[must_use]
+  pub fn entry_index(&self) -> I {
+    self.index
+  }
+
+  /// The index stored for this index..
+  ///
+  /// This index may be different from the one used to create this entry (see [`OccupiedEntry::entry_index`]), but both
+  /// will have the same behavior with respect to [`SparseSetIndex`].
+  #[must_use]
+  pub fn stored_index(&self) -> I {
+    *unsafe { self.sparse_set.indices.get_unchecked(self.dense_index) }
+  }
+}
+
+impl<I: Debug + SparseSetIndex, T: Debug, SA: Allocator, DA: Allocator> Debug
+  for ImmutableEntry<'_, I, T, SA, DA>
+{
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    formatter
+      .debug_struct("ImmutableEntry")
+      .field("index", &self.entry_index())
+      .field("value", self.get())
+      .finish()
+  }
+}
+
 /// A view into a single entry in a sparse set, which may be either vacant or occupied.
 ///
 /// This is constructed from the [`SparseSet::entry`] function.
@@ -1709,8 +1794,6 @@ impl<'a, I: SparseSetIndex, T, SA: Allocator, DA: Allocator> OccupiedEntry<'a, I
     let _ = self.sparse_set.sparse.remove(self.index);
     unsafe { self.sparse_set.remove_at_dense_index(self.dense_index) }
   }
-
-  //   pub fn insert() {}
 }
 
 impl<I: Debug + SparseSetIndex, T: Debug, SA: Allocator, DA: Allocator> Debug
@@ -1787,19 +1870,19 @@ mod test {
   #[should_panic]
   #[test]
   fn test_with_capacity_dense_greater_than_sparse() {
-    let _: SparseSet<usize, usize> = SparseSet::with_capacity(0, 1);
+    let _set: SparseSet<usize, usize> = SparseSet::with_capacity(0, 1);
   }
 
   #[should_panic]
   #[test]
   fn test_with_capacity_sparse_overflow() {
-    let _: SparseSet<usize, usize> = SparseSet::with_capacity(usize::MAX, 0);
+    let _set: SparseSet<usize, usize> = SparseSet::with_capacity(usize::MAX, 0);
   }
 
   #[should_panic]
   #[test]
   fn test_with_capacity_dense_overflow() {
-    let _: SparseSet<usize, usize> = SparseSet::with_capacity(0, usize::MAX);
+    let _set: SparseSet<usize, usize> = SparseSet::with_capacity(0, usize::MAX);
   }
 
   #[test]
@@ -2520,9 +2603,9 @@ mod test {
     {
       let mut set = SparseSet::new();
       let value = Value(num_dropped.clone());
-      let _ = set.insert(0, value.clone());
-      let _ = set.insert(1, value.clone());
-      let _ = set.insert(2, value);
+      mem::drop(set.insert(0, value.clone()));
+      mem::drop(set.insert(1, value.clone()));
+      mem::drop(set.insert(2, value));
 
       let _cloned_set = set.clone();
     }
@@ -2572,9 +2655,9 @@ mod test {
     {
       let mut set = SparseSet::new();
       let value = Value(num_dropped.clone());
-      let _ = set.insert(0, value.clone());
-      let _ = set.insert(1, value.clone());
-      let _ = set.insert(2, value);
+      mem::drop(set.insert(0, value.clone()));
+      mem::drop(set.insert(1, value.clone()));
+      mem::drop(set.insert(2, value));
     }
 
     assert_eq!(*num_dropped.borrow(), 3);
@@ -2778,6 +2861,67 @@ mod test {
     let _ = set_2.remove(0);
 
     assert_eq!(set_1, set_2);
+  }
+
+  #[test]
+  fn test_immutable_entry_dense_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = match set.entry(1) {
+      Entry::Vacant(_) => panic!("expected immutable entry"),
+      Entry::Occupied(entry) => entry,
+    };
+
+    assert_eq!(entry.dense_index(), 1);
+  }
+
+  #[test]
+  fn test_immutable_entry_get() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = set.immutable_entry(1).unwrap();
+
+    assert_eq!(entry.get(), &2);
+  }
+
+  #[test]
+  fn test_immutable_entry_entry_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = set.immutable_entry(1).unwrap();
+
+    assert_eq!(entry.entry_index(), 1);
+  }
+
+  #[test]
+  fn test_immutable_entry_stored_index() {
+    let mut set = SparseSet::new();
+    let _ = set.insert(Index::new(0, 0), 1);
+    let _ = set.insert(Index::new(1, 0), 2);
+    let _ = set.insert(Index::new(2, 0), 3);
+    let entry = set.immutable_entry(Index::new(1, 1)).unwrap();
+
+    assert_eq!(entry.entry_index(), Index::new(1, 1));
+    assert_eq!(entry.stored_index(), Index::new(1, 0));
+  }
+
+  #[test]
+  fn test_immutable_entry_debug() {
+    let mut set: SparseSet<usize, usize> = SparseSet::new();
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+    let entry = set.immutable_entry(1).unwrap();
+    assert_eq!(
+      format!("{:?}", entry),
+      "ImmutableEntry { index: 1, value: 2 }"
+    );
   }
 
   #[test]
