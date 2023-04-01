@@ -876,7 +876,7 @@ mod test {
   #[should_panic]
   #[test]
   fn test_with_capacity_overflow() {
-    let _: SparseVec<usize, usize> = SparseVec::with_capacity(usize::MAX);
+    let _set: SparseVec<usize, usize> = SparseVec::with_capacity(usize::MAX);
   }
 
   #[test]
@@ -1229,6 +1229,7 @@ mod test {
     assert_eq!(vec, cloned_vec);
   }
 
+  #[allow(clippy::redundant_clone)]
   #[test]
   fn test_clone_zero_capacity() {
     let vec: SparseVec<usize, usize> = SparseVec::new();
@@ -1245,9 +1246,9 @@ mod test {
     {
       let mut vec = SparseVec::new();
       let value = Value(num_dropped.clone());
-      let _ = vec.insert(0, value.clone());
-      let _ = vec.insert(1, value.clone());
-      let _ = vec.insert(2, value);
+      mem::drop(vec.insert(0, value.clone()));
+      mem::drop(vec.insert(1, value.clone()));
+      mem::drop(vec.insert(2, value));
 
       let _cloned_vec = vec.clone();
     }
@@ -1294,9 +1295,9 @@ mod test {
     {
       let mut vec = SparseVec::new();
       let value = Value(num_dropped.clone());
-      let _ = vec.insert(0, value.clone());
-      let _ = vec.insert(1, value.clone());
-      let _ = vec.insert(2, value);
+      mem::drop(vec.insert(0, value.clone()));
+      mem::drop(vec.insert(1, value.clone()));
+      mem::drop(vec.insert(2, value));
     }
 
     assert_eq!(*num_dropped.borrow(), 3);

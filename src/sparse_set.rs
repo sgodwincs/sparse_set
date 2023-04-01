@@ -2576,6 +2576,7 @@ mod test {
     assert_eq!(reference.first(), Some(&1));
   }
 
+  #[allow(clippy::redundant_clone)]
   #[test]
   fn test_clone() {
     let mut set = SparseSet::new();
@@ -2587,6 +2588,7 @@ mod test {
     assert_eq!(set, cloned_set);
   }
 
+  #[allow(clippy::redundant_clone)]
   #[test]
   fn test_clone_zero_capacity() {
     let set: SparseSet<usize, usize> = SparseSet::new();
@@ -2869,10 +2871,7 @@ mod test {
     let _ = set.insert(0, 1);
     let _ = set.insert(1, 2);
     let _ = set.insert(2, 3);
-    let entry = match set.entry(1) {
-      Entry::Vacant(_) => panic!("expected immutable entry"),
-      Entry::Occupied(entry) => entry,
-    };
+    let entry = set.immutable_entry(1).unwrap();
 
     assert_eq!(entry.dense_index(), 1);
   }
