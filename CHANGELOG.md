@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.0] - 2023-03-31
+
+### Added
+
+- Added `ImmutableEntry` and its corresponding API `SparseSet::immutable_entry`.
+
+### Removed
+
+- Removed the experimental `AnySparseSet` implementation along with the `unstable` feature.
+
 ## [0.7.1] - 2022-07-29
 
 ### Added
