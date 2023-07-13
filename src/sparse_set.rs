@@ -1465,7 +1465,7 @@ impl<I, T, SA: Allocator, DA: Allocator> IntoIterator for SparseSet<I, T, SA, DA
 
   #[inline]
   fn into_iter(self) -> Self::IntoIter {
-    self.indices.into_iter().zip(self.dense.into_iter())
+    self.indices.into_iter().zip(self.dense)
   }
 }
 
