@@ -2871,9 +2871,9 @@ mod test {
     let _ = set.insert(0, 1);
     let _ = set.insert(1, 2);
     let _ = set.insert(2, 3);
-    let entry = set.immutable_entry(1).unwrap();
+    let entry = set.immutable_entry(2).unwrap();
 
-    assert_eq!(entry.dense_index(), 1);
+    assert_eq!(entry.dense_index(), 2);
   }
 
   #[test]
@@ -3063,12 +3063,12 @@ mod test {
     let _ = set.insert(0, 1);
     let _ = set.insert(1, 2);
     let _ = set.insert(2, 3);
-    let entry = match set.entry(1) {
+    let entry = match set.entry(2) {
       Entry::Vacant(_) => panic!("expected occupied entry"),
       Entry::Occupied(entry) => entry,
     };
 
-    assert_eq!(entry.dense_index(), 1);
+    assert_eq!(entry.dense_index(), 2);
   }
 
   #[test]
