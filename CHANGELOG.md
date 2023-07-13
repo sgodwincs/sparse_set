@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.1] - 2023-07-13
+
+### Changed
+
+- Fixed breakage from unstable feature.
+
 ## [0.8.0] - 2023-03-31
 
 ### Added
