@@ -4,7 +4,7 @@
 
 #![cfg_attr(coverage_nightly, feature(no_coverage))]
 #![feature(allocator_api)]
-#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
