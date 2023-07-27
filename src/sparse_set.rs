@@ -1326,6 +1326,43 @@ impl<I: SparseSetIndex, T, SA: Allocator, DA: Allocator> SparseSet<I, T, SA, DA>
 
     (index, value)
   }
+
+  /// Retains only the elements specified by the predicate.
+  ///
+  /// In other words, removes all pairs `(index, value)` for which `f(&index, &mut value)` returns false. The elements
+  /// are visited in the same order as specified by [`indices`].
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use sparse_set::SparseSet;
+  /// #
+  /// let mut set = SparseSet::new();
+  /// set.insert(0, 0);
+  /// set.insert(1, 5);
+  /// set.insert(2, 6);
+  ///
+  /// set.retain(|index, value| *value % 5 != 0);
+  /// assert_eq!(set.dense_len(), 1);
+  /// assert!(!set.contains(0));
+  /// assert!(!set.contains(1));
+  /// assert!(set.contains(2));
+  /// ```
+  pub fn retain<F: FnMut(I, &mut T) -> bool>(&mut self, mut f: F) {
+    let mut i = 0;
+
+    while i < self.indices.len() {
+      let index = *unsafe { self.indices.get_unchecked(i) };
+      let value = unsafe { self.dense.get_unchecked_mut(i) };
+
+      if f(index, value) {
+        i += 1;
+        continue;
+      }
+
+      mem::drop(self.remove(index));
+    }
+  }
 }
 
 impl<I, T, SA: Allocator, DA: Allocator> AsRef<Self> for SparseSet<I, T, SA, DA> {
@@ -2363,6 +2400,22 @@ mod test {
 
     set.reserve_exact_sparse(1);
     assert_eq!(set.sparse_capacity(), capacity);
+  }
+
+  #[test]
+  fn test_retain() {
+    let mut set = SparseSet::with_capacity(3, 3);
+    let _ = set.insert(0, 1);
+    let _ = set.insert(1, 2);
+    let _ = set.insert(2, 3);
+
+    set.retain(|_index, value| *value > 2);
+    assert_eq!(set.dense_len(), 1);
+    assert!(set.indices().eq([2]));
+    assert!(set.values().eq([&3]));
+    assert_eq!(set.get(0), None);
+    assert_eq!(set.get(1), None);
+    assert_eq!(set.get(2), Some(&3));
   }
 
   #[test]
